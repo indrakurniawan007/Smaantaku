@@ -126,6 +126,7 @@ const jam=(d=new Date())=>d.toLocaleTimeString('id-ID',{timeZone:TZ,hour:'2-digi
 
 let cfg=ls.get('cfg',{url:'',pengawas:'',jenis:'Dhuhur'});
 let siswa=ls.get('siswa',[]), riwayat=ls.get('riwayat',[]), scanned=ls.get('scanned',{}), queue=ls.get('queue',[]);
+const pend={};
 let scanner=null, paused=false, running=false, ac=null, nt=null;
 
 /* ---------- suara ---------- */
@@ -244,9 +245,11 @@ async function onScan(txt){
     beep('err');notif('dup',{nama:s.nama,info,status:`⚠️ Sudah absen (${jam()})`});return;
   }
   const payload={nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.pengawas,waktu:new Date().toISOString()};
+  if(pend[key])return;
+  pend[key]=1;
+  scanned[key]=Date.now();ls.set('scanned',scanned);
   try{
     const r=await post(payload);
-    scanned[key]=Date.now();
     Object.keys(scanned).forEach(k=>{if(!k.includes('|'+tgl()+'|'))delete scanned[k]});
     ls.set('scanned',scanned);
     if(r.status==='sukses'){
@@ -256,6 +259,7 @@ async function onScan(txt){
       beep('err');notif('dup',{nama:s.nama,info,status:`⚠️ SUDAH ADA - Hari ini sudah absen (${jam()})`});
       addRiwayat(s,jenis,'⚠️ Sudah ada');
     }else{
+      delete scanned[key];ls.set('scanned',scanned);
       beep('err');notif('err',{nama:s.nama,info,status:'Server menolak: '+(r.pesan||'error')});
     }
   }catch(e){
@@ -263,7 +267,7 @@ async function onScan(txt){
     scanned[key]=Date.now();ls.set('scanned',scanned);
     beep('ok');notif('q',{nama:s.nama,info,status:`📴 Disimpan di HP jam ${jam()}, dikirim saat online`});
     addRiwayat(s,jenis,'📴 Menunggu');
-  }
+  }finally{delete pend[key]}
 }
 $('btnMulai').onclick=async()=>{
   if(!cfg.url)return alert('Isi dan simpan URL Web App dulu.');
