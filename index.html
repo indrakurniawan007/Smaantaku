@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#047857">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Absen Sholat">
+<title>Absen Sholat Berjamaah</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
+  #reader video{border-radius:1rem}
+  .btn{padding:.8rem 1rem;border-radius:.9rem;font-weight:700;transition:transform .1s}
+  .btn:active{transform:scale(.97)}
+  .inp{width:100%;border:2px solid #a7f3d0;border-radius:.8rem;padding:.7rem .9rem;background:#fff}
+  .inp:focus{outline:none;border-color:#059669}
+</style>
+</head>
+<body class="bg-emerald-50 text-emerald-950 min-h-screen">
+
+<header class="bg-emerald-700 text-white px-4 pb-5 pt-[max(1rem,env(safe-area-inset-top))] rounded-b-3xl shadow">
+  <div class="flex items-center gap-3">
+    <div class="text-4xl">🕌</div>
+    <div>
+      <h1 class="text-xl font-extrabold leading-tight">Absen Sholat Berjamaah</h1>
+      <p class="text-emerald-100 text-sm">Senin–Kamis • Dhuhur & Ashar</p>
+    </div>
+  </div>
+  <div class="flex flex-wrap gap-2 mt-3 text-sm font-semibold">
+    <span id="chipSiswa" class="bg-white/20 rounded-full px-3 py-1">👥 0 siswa siap</span>
+    <span id="chipAntre" class="bg-white/20 rounded-full px-3 py-1 hidden">📴 0 menunggu kirim</span>
+    <span id="chipNet" class="bg-white/20 rounded-full px-3 py-1">🟢 Online</span>
+  </div>
+</header>
+
+<main class="p-4 space-y-4 max-w-lg mx-auto">
+
+  <!-- PENGATURAN -->
+  <details id="panelSet" class="bg-white rounded-2xl shadow p-4">
+    <summary class="font-bold text-lg cursor-pointer">⚙️ Pengaturan</summary>
+    <div class="mt-3 space-y-3">
+      <div>
+        <label class="text-sm font-semibold">URL Web App Google Apps Script (/exec)</label>
+        <input id="url" class="inp mt-1" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+        <div class="grid grid-cols-2 gap-2 mt-2">
+          <button id="btnSimpan" class="btn bg-emerald-700 text-white">💾 Simpan URL</button>
+          <button id="btnTest" class="btn bg-emerald-100 text-emerald-900">📥 Test Baca Siswa</button>
+        </div>
+      </div>
+      <div>
+        <label class="text-sm font-semibold">Nama Pengawas</label>
+        <input id="pengawas" class="inp mt-1" placeholder="cth: Ust. Ahmad / Bu Rina (piket)">
+      </div>
+      <div>
+        <label class="text-sm font-semibold">Jenis Sholat</label>
+        <div class="grid grid-cols-2 gap-2 mt-1">
+          <button data-j="Dhuhur" class="btnJenis btn border-2 border-emerald-300">☀️ Dhuhur</button>
+          <button data-j="Ashar" class="btnJenis btn border-2 border-emerald-300">🌤️ Ashar</button>
+        </div>
+      </div>
+      <div>
+        <div class="text-sm font-semibold">Debug JSON</div>
+        <pre id="debug" class="mt-1 bg-emerald-950 text-emerald-200 text-xs rounded-xl p-3 max-h-48 overflow-auto whitespace-pre-wrap">Belum ada data.</pre>
+      </div>
+    </div>
+  </details>
+
+  <!-- SCANNER -->
+  <section class="bg-white rounded-2xl shadow p-4">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="font-bold text-lg">📷 Scan QR Siswa</h2>
+      <span id="infoScan" class="text-sm font-bold text-emerald-700"></span>
+    </div>
+    <div id="reader" class="rounded-2xl overflow-hidden bg-emerald-100 min-h-[120px] flex items-center justify-center text-emerald-700 text-sm">Kamera belum aktif</div>
+    <div class="grid grid-cols-2 gap-2 mt-3">
+      <button id="btnMulai" class="btn bg-emerald-700 text-white text-lg">▶ Mulai Scan</button>
+      <button id="btnStop" class="btn bg-red-100 text-red-700 text-lg" disabled>■ Stop</button>
+    </div>
+    <button id="btnSync" class="btn bg-sky-100 text-sky-800 w-full mt-2 hidden">🔄 Kirim data yang menunggu</button>
+  </section>
+
+  <!-- RIWAYAT -->
+  <section class="bg-white rounded-2xl shadow p-4">
+    <h2 class="font-bold text-lg mb-2">🕘 5 Scan Terakhir</h2>
+    <ul id="riwayat" class="divide-y divide-emerald-100"></ul>
+  </section>
+
+  <!-- DATA SISWA -->
+  <details class="bg-white rounded-2xl shadow p-4">
+    <summary class="font-bold text-lg cursor-pointer">📋 Data Siswa (cache)</summary>
+    <div class="mt-3 space-y-2">
+      <input id="cari" class="inp" placeholder="Cari nama / NIS / kelas...">
+      <div class="text-xs text-emerald-700" id="cacheInfo"></div>
+      <ul id="listSiswa" class="divide-y divide-emerald-100 text-sm max-h-72 overflow-auto"></ul>
+    </div>
+  </details>
+
+  <p class="text-center text-xs text-emerald-700 pb-6">Scan tersimpan otomatis di Google Spreadsheet sekolah.</p>
+</main>
+
+<!-- NOTIFIKASI BESAR -->
+<div id="notif" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-5" onclick="hideNotif()"></div>
+
+<script>
+(()=>{ // manifest agar bisa Add to Home Screen
+  const icon='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#047857"/><text x="256" y="350" font-size="300" text-anchor="middle">🕌</text></svg>');
+  const m={name:'Absen Sholat Berjamaah',short_name:'Absen Sholat',display:'standalone',start_url:location.href,background_color:'#ecfdf5',theme_color:'#047857',icons:[{src:icon,sizes:'512x512',type:'image/svg+xml',purpose:'any'}]};
+  const l=document.createElement('link');l.rel='manifest';
+  l.href=URL.createObjectURL(new Blob([JSON.stringify(m)],{type:'application/manifest+json'}));
+  document.head.appendChild(l);
+  const a=document.createElement('link');a.rel='apple-touch-icon';a.href=icon;document.head.appendChild(a);
+})();
+
+const $=id=>document.getElementById(id);
+const TZ='Asia/Makassar';
+const ls={
+  get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const tgl=(d=new Date())=>d.toLocaleDateString('sv-SE',{timeZone:TZ});
+const jam=(d=new Date())=>d.toLocaleTimeString('id-ID',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).replace('.',':');
+
+let cfg=ls.get('cfg',{url:'',pengawas:'',jenis:'Dhuhur'});
+let siswa=ls.get('siswa',[]), riwayat=ls.get('riwayat',[]), scanned=ls.get('scanned',{}), queue=ls.get('queue',[]);
+let scanner=null, paused=false, running=false, ac=null, nt=null;
+
+/* ---------- suara ---------- */
+function beep(t){
+  try{
+    ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+    if(ac.state==='suspended')ac.resume();
+    const seq=t==='ok'?[[880,0],[1175,.13]]:[[300,0],[220,.18]];
+    seq.forEach(([f,d])=>{
+      const o=ac.createOscillator(),g=ac.createGain();
+      o.type='sine';o.frequency.value=f;o.connect(g);g.connect(ac.destination);
+      const s=ac.currentTime+d;
+      g.gain.setValueAtTime(.35,s);g.gain.exponentialRampToValueAtTime(.001,s+.2);
+      o.start(s);o.stop(s+.22);
+    });
+    if(navigator.vibrate)navigator.vibrate(t==='ok'?80:[120,60,120]);
+  }catch(e){}
+}
+
+/* ---------- notifikasi besar ---------- */
+function hideNotif(){$('notif').classList.add('hidden');$('notif').classList.remove('flex')}
+function notif(t,{nama='',info='',status=''}){
+  const c={ok:['bg-emerald-600','✅'],dup:['bg-amber-500','⚠️'],err:['bg-red-600','❌'],q:['bg-sky-600','📴']}[t];
+  $('notif').innerHTML=`<div class="${c[0]} text-white rounded-3xl p-6 text-center shadow-2xl w-full max-w-sm">
+    <div class="text-8xl">${c[1]}</div>
+    <div class="text-3xl font-extrabold mt-3 leading-tight">${esc(nama)}</div>
+    <div class="text-lg opacity-95 mt-2 font-semibold">${esc(info)}</div>
+    <div class="mt-4 bg-white/20 rounded-2xl p-3 text-xl font-bold leading-snug">${esc(status)}</div></div>`;
+  $('notif').classList.remove('hidden');$('notif').classList.add('flex');
+  clearTimeout(nt);nt=setTimeout(hideNotif,3000);
+}
+
+/* ---------- render ---------- */
+function render(){
+  $('url').value=cfg.url||'';$('pengawas').value=cfg.pengawas||'';
+  document.querySelectorAll('.btnJenis').forEach(b=>{
+    const on=b.dataset.j===cfg.jenis;
+    b.className='btnJenis btn border-2 '+(on?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
+  });
+  $('chipSiswa').textContent=`👥 ${siswa.length} siswa siap`;
+  $('chipAntre').textContent=`📴 ${queue.length} menunggu kirim`;
+  $('chipAntre').classList.toggle('hidden',!queue.length);
+  $('btnSync').classList.toggle('hidden',!queue.length);
+  $('chipNet').textContent=navigator.onLine?'🟢 Online':'🔴 Offline';
+  $('infoScan').textContent=`${cfg.jenis}${cfg.pengawas?' • '+cfg.pengawas:''}`;
+  $('riwayat').innerHTML=riwayat.length?riwayat.map(r=>`<li class="py-2 flex justify-between gap-2">
+    <div><div class="font-bold">${esc(r.nama)}</div><div class="text-xs text-emerald-700">${esc(r.kelas)} • ${esc(r.nis)} • ${esc(r.jenis)}</div></div>
+    <div class="text-right text-sm shrink-0"><div class="font-bold">${esc(r.jam)}</div><div>${esc(r.st)}</div></div></li>`).join('')
+    :'<li class="py-3 text-sm text-emerald-700">Belum ada scan.</li>';
+  renderSiswa();
+}
+function renderSiswa(){
+  const q=($('cari').value||'').toLowerCase();
+  const f=siswa.filter(s=>!q||`${s.nis} ${s.nama} ${s.kelas}`.toLowerCase().includes(q));
+  $('cacheInfo').textContent=`Menampilkan ${Math.min(f.length,100)} dari ${f.length} siswa`+(ls.get('siswaTime','')?` • ditarik ${ls.get('siswaTime','')}`:'');
+  $('listSiswa').innerHTML=f.slice(0,100).map(s=>`<li class="py-1.5"><b>${esc(s.nama)}</b><div class="text-xs text-emerald-700">${esc(s.kelas)} • ${esc(s.nis)}</div></li>`).join('')||'<li class="py-2">Data kosong. Tarik data siswa di Pengaturan.</li>';
+}
+function addRiwayat(s,jenis,st){
+  riwayat.unshift({nama:s.nama,kelas:s.kelas,nis:s.nis,jenis,jam:jam(),st});
+  riwayat=riwayat.slice(0,5);ls.set('riwayat',riwayat);render();
+}
+
+/* ---------- pengaturan ---------- */
+function saveCfg(){
+  cfg.url=$('url').value.trim();cfg.pengawas=$('pengawas').value.trim();
+  ls.set('cfg',cfg);render();
+}
+$('btnSimpan').onclick=()=>{saveCfg();$('debug').textContent='✔ URL & nama pengawas tersimpan.'};
+$('pengawas').onchange=saveCfg;
+document.querySelectorAll('.btnJenis').forEach(b=>b.onclick=()=>{cfg.jenis=b.dataset.j;ls.set('cfg',cfg);render()});
+$('cari').oninput=renderSiswa;
+
+$('btnTest').onclick=async()=>{
+  saveCfg();
+  if(!cfg.url){$('debug').textContent='❌ Isi URL Web App dulu.';return}
+  $('debug').textContent='⏳ Memuat data siswa...';
+  try{
+    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=getSiswa');
+    const j=await r.json();
+    $('debug').textContent=JSON.stringify(j,null,2).slice(0,3500);
+    if(j.status==='sukses'&&Array.isArray(j.data)){
+      siswa=j.data;ls.set('siswa',siswa);
+      ls.set('siswaTime',tgl()+' '+jam());render();
+    }
+  }catch(e){
+    $('debug').textContent='❌ Gagal: '+e.message+'\n\nPeriksa: URL berakhiran /exec, Web App di-deploy "Anyone", dan HP online.';
+  }
+};
+
+/* ---------- kirim ke Sheet ---------- */
+async function post(p){
+  const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(p)});
+  return await r.json();
+}
+async function syncQueue(){
+  if(!queue.length||!cfg.url||!navigator.onLine)return;
+  const sisa=[];let ok=0;
+  for(const p of queue){try{await post(p);ok++}catch(e){sisa.push(p)}}
+  queue=sisa;ls.set('queue',queue);render();
+  if(ok)notif('ok',{nama:`${ok} data terkirim`,info:'Antrean offline',status:'✅ TERSIMPAN DI SPREADSHEET'});
+}
+$('btnSync').onclick=syncQueue;
+window.addEventListener('online',()=>{render();syncQueue()});
+window.addEventListener('offline',render);
+
+/* ---------- scan ---------- */
+async function onScan(txt){
+  if(paused)return;
+  paused=true;setTimeout(()=>paused=false,3000);
+  const nis=String(txt).trim();
+  const s=siswa.find(x=>String(x.nis).trim()===nis);
+  if(!s){beep('err');notif('err',{nama:'NIS tidak dikenal',info:nis,status:'Tarik ulang data siswa atau cek kartu'});return}
+
+  const jenis=cfg.jenis, info=`${s.kelas} - ${nis} - ${jenis}`, key=`${nis}|${tgl()}|${jenis}`;
+  if(scanned[key]&&Date.now()-scanned[key]<600000){
+    beep('err');notif('dup',{nama:s.nama,info,status:`⚠️ Sudah absen (${jam()})`});return;
+  }
+  const payload={nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.pengawas,waktu:new Date().toISOString()};
+  try{
+    const r=await post(payload);
+    scanned[key]=Date.now();
+    Object.keys(scanned).forEach(k=>{if(!k.includes('|'+tgl()+'|'))delete scanned[k]});
+    ls.set('scanned',scanned);
+    if(r.status==='sukses'){
+      beep('ok');notif('ok',{nama:s.nama,info,status:`✅ TERSIMPAN DI SPREADSHEET jam ${jam()}`});
+      addRiwayat(s,jenis,'✅ Tersimpan');
+    }else if(r.status==='duplikat'){
+      beep('err');notif('dup',{nama:s.nama,info,status:`⚠️ SUDAH ADA - Hari ini sudah absen (${jam()})`});
+      addRiwayat(s,jenis,'⚠️ Sudah ada');
+    }else{
+      beep('err');notif('err',{nama:s.nama,info,status:'Server menolak: '+(r.pesan||'error')});
+    }
+  }catch(e){
+    queue.push(payload);ls.set('queue',queue);
+    scanned[key]=Date.now();ls.set('scanned',scanned);
+    beep('ok');notif('q',{nama:s.nama,info,status:`📴 Disimpan di HP jam ${jam()}, dikirim saat online`});
+    addRiwayat(s,jenis,'📴 Menunggu');
+  }
+}
+$('btnMulai').onclick=async()=>{
+  if(!cfg.url)return alert('Isi dan simpan URL Web App dulu.');
+  if(!cfg.pengawas)return alert('Isi Nama Pengawas dulu.');
+  if(!siswa.length)return alert('Data siswa kosong. Klik "Test Baca Siswa" dulu.');
+  try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}
+  $('reader').textContent='';
+  try{
+    scanner=new Html5Qrcode('reader');
+    await scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:240,height:240}},onScan,()=>{});
+    running=true;$('btnMulai').disabled=true;$('btnStop').disabled=false;
+  }catch(e){
+    $('reader').textContent='Kamera gagal dibuka';
+    alert('Kamera gagal dibuka: '+e+'\n\nPastikan izin kamera diberikan dan aplikasi dibuka lewat alamat HTTPS.');
+  }
+};
+$('btnStop').onclick=async()=>{
+  try{await scanner.stop();scanner.clear()}catch(e){}
+  running=false;$('btnMulai').disabled=false;$('btnStop').disabled=true;
+  $('reader').textContent='Kamera belum aktif';
+};
+
+render();
+if(!cfg.url)$('panelSet').open=true;
+syncQueue();
+</script>
+</body>
+</html>
