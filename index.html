@@ -88,6 +88,36 @@
     <ul id="riwayat" class="divide-y divide-emerald-100"></ul>
   </section>
 
+  <!-- REKAP HARI INI -->
+  <details id="panelRekap" class="bg-white rounded-2xl shadow p-4">
+    <summary class="font-bold text-lg cursor-pointer flex items-center justify-between gap-2">
+      <span>📊 Rekap Hari Ini</span>
+      <span id="rekapRingkas" class="text-sm font-bold text-emerald-700"></span>
+    </summary>
+    <div class="mt-3 space-y-3">
+      <div class="grid grid-cols-2 gap-2">
+        <button data-j="Dhuhur" class="btnRJ btn !py-2 border-2 border-emerald-300">☀️ Dhuhur</button>
+        <button data-j="Ashar" class="btnRJ btn !py-2 border-2 border-emerald-300">🌤️ Ashar</button>
+      </div>
+      <div>
+        <div class="flex items-end justify-between">
+          <div><span id="rekapSudah" class="text-4xl font-extrabold text-emerald-700">0</span><span id="rekapTotal" class="text-lg font-bold text-emerald-900"> / 0</span></div>
+          <div id="rekapPersen" class="text-lg font-bold text-emerald-700">0%</div>
+        </div>
+        <div class="h-3 bg-emerald-100 rounded-full overflow-hidden mt-1"><div id="rekapBar" class="h-full bg-emerald-600 rounded-full" style="width:0%"></div></div>
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <button data-f="semua" class="btnRF btn !py-2 !px-1 text-sm border-2 border-emerald-300">Semua</button>
+        <button data-f="belum" class="btnRF btn !py-2 !px-1 text-sm border-2 border-emerald-300">Belum</button>
+        <button data-f="sudah" class="btnRF btn !py-2 !px-1 text-sm border-2 border-emerald-300">Sudah</button>
+      </div>
+      <input id="rekapCari" class="inp" placeholder="Cari nama atau NIS...">
+      <button id="btnRekap" class="btn bg-emerald-100 text-emerald-900 w-full !py-2">🔄 Perbarui dari Spreadsheet</button>
+      <div id="rekapInfo" class="text-xs text-emerald-700"></div>
+      <div id="rekapList" class="space-y-2"></div>
+    </div>
+  </details>
+
   <!-- DATA SISWA -->
   <details class="bg-white rounded-2xl shadow p-4">
     <summary class="font-bold text-lg cursor-pointer">📋 Data Siswa (cache)</summary>
@@ -177,6 +207,7 @@ function render(){
     <div class="text-right text-sm shrink-0"><div class="font-bold">${esc(r.jam)}</div><div>${esc(r.st)}</div></div></li>`).join('')
     :'<li class="py-3 text-sm text-emerald-700">Belum ada scan.</li>';
   renderSiswa();
+  renderRekap();
 }
 function renderSiswa(){
   const q=($('cari').value||'').toLowerCase();
@@ -186,7 +217,8 @@ function renderSiswa(){
 }
 function addRiwayat(s,jenis,st){
   riwayat.unshift({nama:s.nama,kelas:s.kelas,nis:s.nis,jenis,jam:jam(),st});
-  riwayat=riwayat.slice(0,5);ls.set('riwayat',riwayat);render();
+  riwayat=riwayat.slice(0,5);ls.set('riwayat',riwayat);
+  render();
 }
 
 /* ---------- pengaturan ---------- */
@@ -289,6 +321,105 @@ $('btnStop').onclick=async()=>{
   running=false;$('btnMulai').disabled=false;$('btnStop').disabled=true;
   $('reader').textContent='Kamera belum aktif';
 };
+
+/* ---------- rekap hari ini ---------- */
+const nk=v=>String(v??'').trim().replace(/^0+/,'');
+const kcmp=(a,b)=>String(a).localeCompare(String(b),'id',{numeric:true});
+let rekapJenis=cfg.jenis||'Dhuhur', rekapFilter='semua', rekapWaktu=ls.get('rekapWaktu',''), rekapErr='';
+let absenSrv=ls.get('absenSrv',{tgl:'',data:[]});
+const bukaKelas=new Set();
+
+function sudahMap(jenis){
+  const m=new Map(), t=tgl();
+  if(absenSrv.tgl===t)absenSrv.data.forEach(a=>{if(a.jenis===jenis)m.set(nk(a.nis),a.jam||'')});
+  Object.keys(scanned).forEach(k=>{
+    const [n,d,j]=k.split('|');
+    if(d===t&&j===jenis&&!m.has(nk(n)))m.set(nk(n),jam(new Date(scanned[k])));
+  });
+  return m;
+}
+function renderRekap(){
+  const box=$('rekapList');
+  document.querySelectorAll('.btnRJ').forEach(b=>{
+    b.className='btnRJ btn !py-2 border-2 '+(b.dataset.j===rekapJenis?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
+  });
+  document.querySelectorAll('.btnRF').forEach(b=>{
+    b.className='btnRF btn !py-2 !px-1 text-sm border-2 '+(b.dataset.f===rekapFilter?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
+  });
+  if(!siswa.length){
+    box.innerHTML='<p class="text-sm text-emerald-700">Data siswa kosong. Tarik data di Pengaturan dulu.</p>';
+    $('rekapRingkas').textContent='';return;
+  }
+  const sd=sudahMap(rekapJenis), q=($('rekapCari').value||'').toLowerCase().trim();
+  const grup={};let sudahTotal=0;
+  siswa.forEach(s=>{
+    const k=s.kelas||'(tanpa kelas)';
+    (grup[k]=grup[k]||[]).push(s);
+    if(sd.has(nk(s.nis)))sudahTotal++;
+  });
+  const total=siswa.length, pct=Math.round(sudahTotal/total*100);
+  $('rekapSudah').textContent=sudahTotal;$('rekapTotal').textContent=' / '+total;
+  $('rekapPersen').textContent=pct+'%';$('rekapBar').style.width=pct+'%';
+  $('rekapRingkas').textContent=`${rekapJenis} ${sudahTotal}/${total}`;
+  let html='';
+  Object.keys(grup).sort(kcmp).forEach(k=>{
+    const semua=grup[k].slice().sort((a,b)=>kcmp(a.nama,b.nama));
+    const ns=semua.filter(s=>sd.has(nk(s.nis))).length;
+    const tampil=semua.filter(s=>{
+      const ok=sd.has(nk(s.nis));
+      if(rekapFilter==='belum'&&ok)return false;
+      if(rekapFilter==='sudah'&&!ok)return false;
+      if(q&&!`${s.nama} ${s.nis}`.toLowerCase().includes(q))return false;
+      return true;
+    });
+    if((q||rekapFilter!=='semua')&&!tampil.length)return;
+    const open=q||bukaKelas.has(k);
+    const lengkap=ns===semua.length;
+    html+=`<details data-k="${esc(k)}" ${open?'open':''} class="rounded-xl border border-emerald-100">
+      <summary class="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer">
+        <span class="font-bold">${esc(k)}</span>
+        <span class="text-sm font-bold ${lengkap?'text-emerald-700':'text-red-600'}">${ns}/${semua.length}${lengkap?' ✅':''}</span>
+      </summary>`;
+    if(open){
+      html+=`<div class="px-3 pb-2"><div class="h-1.5 bg-emerald-100 rounded-full overflow-hidden mb-1"><div class="h-full bg-emerald-600" style="width:${Math.round(ns/semua.length*100)}%"></div></div><ul class="divide-y divide-emerald-50 text-sm">`+
+        tampil.map(s=>{
+          const j=sd.get(nk(s.nis)), ok=sd.has(nk(s.nis));
+          return `<li class="py-1.5 flex justify-between gap-2"><span class="${ok?'':'text-red-700 font-semibold'}">${esc(s.nama)}</span><span class="shrink-0 font-bold ${ok?'text-emerald-700':'text-red-600'}">${ok?'✅ '+esc(j):'Belum'}</span></li>`;
+        }).join('')+'</ul></div>';
+    }
+    html+='</details>';
+  });
+  box.innerHTML=html||'<p class="text-sm text-emerald-700">Tidak ada siswa yang cocok.</p>';
+  $('rekapInfo').textContent=rekapErr||(absenSrv.tgl===tgl()
+    ?`Data Spreadsheet diperbarui jam ${rekapWaktu}. Scan terbaru dari HP ini langsung ikut tampil.`
+    :'Belum diperbarui hari ini. Klik Perbarui untuk melihat scan semua pengawas.');
+}
+async function muatRekap(){
+  if(!cfg.url){rekapErr='Isi URL Web App di Pengaturan dulu.';renderRekap();return}
+  if(!navigator.onLine){rekapErr='HP sedang offline. Menampilkan data terakhir.';renderRekap();return}
+  const b=$('btnRekap');b.disabled=true;b.textContent='⏳ Memuat...';
+  try{
+    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=getAbsen');
+    const j=await r.json();
+    if(j.status!=='sukses')throw new Error(j.pesan||'server menolak');
+    absenSrv={tgl:j.tanggal,data:j.data};ls.set('absenSrv',absenSrv);
+    rekapWaktu=jam();ls.set('rekapWaktu',rekapWaktu);rekapErr='';
+  }catch(e){rekapErr='Gagal memuat rekap: '+e.message}
+  b.disabled=false;b.textContent='🔄 Perbarui dari Spreadsheet';
+  renderRekap();
+}
+document.querySelectorAll('.btnRJ').forEach(b=>b.onclick=()=>{rekapJenis=b.dataset.j;renderRekap()});
+document.querySelectorAll('.btnRF').forEach(b=>b.onclick=()=>{rekapFilter=b.dataset.f;renderRekap()});
+$('rekapCari').oninput=renderRekap;
+$('btnRekap').onclick=muatRekap;
+$('panelRekap').addEventListener('toggle',()=>{if($('panelRekap').open)muatRekap()});
+$('rekapList').addEventListener('toggle',e=>{
+  const d=e.target;if(!d.dataset||!d.dataset.k||$('rekapCari').value.trim())return;
+  const k=d.dataset.k;
+  if(d.open&&!bukaKelas.has(k)){bukaKelas.add(k);renderRekap()}
+  else if(!d.open&&bukaKelas.has(k))bukaKelas.delete(k);
+},true);
+setInterval(()=>{if($('panelRekap').open&&document.visibilityState==='visible')muatRekap()},60000);
 
 render();
 if(!cfg.url)$('panelSet').open=true;
