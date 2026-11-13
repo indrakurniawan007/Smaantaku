@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#047857">
+<meta name="robots" content="noindex,nofollow">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Absen Sholat">
@@ -30,6 +31,7 @@
     </div>
   </div>
   <div class="flex flex-wrap gap-2 mt-3 text-sm font-semibold">
+    <span id="chipNama" class="bg-white/20 rounded-full px-3 py-1">👤 Belum masuk</span>
     <span id="chipSiswa" class="bg-white/20 rounded-full px-3 py-1">👥 0 siswa siap</span>
     <button id="chipSync" class="bg-white/20 rounded-full px-3 py-1">☁️ Tersambung</button>
   </div>
@@ -37,7 +39,17 @@
 
 <main class="p-4 space-y-4 max-w-lg mx-auto">
 
-  <!-- ANTREAN KIRIM: muncul hanya jika ada data yang belum masuk Spreadsheet -->
+  <!-- PERINGATAN: scan yang sudah "terkirim" tapi tidak terlihat di Spreadsheet -->
+  <section id="boxHilang" class="hidden rounded-2xl border-2 border-red-400 bg-red-50 p-4">
+    <div id="hilangJudul" class="font-extrabold text-red-800 text-lg leading-tight"></div>
+    <div class="text-xs text-red-700 mt-1">Bisa terjadi bila baris di Spreadsheet terhapus. Kirim ulang agar tercatat lagi.</div>
+    <div class="grid grid-cols-2 gap-2 mt-2">
+      <button id="btnUlang" class="btn bg-red-600 text-white !py-2 text-sm">Kirim ulang</button>
+      <button id="btnAbaikan" class="btn bg-red-100 text-red-800 !py-2 text-sm">Abaikan</button>
+    </div>
+  </section>
+
+  <!-- ANTREAN KIRIM -->
   <section id="boxAntre" class="hidden rounded-2xl border-2 border-amber-400 bg-amber-50 p-4">
     <div class="flex items-center justify-between gap-2">
       <div id="antreJudul" class="font-extrabold text-amber-900 text-lg leading-tight"></div>
@@ -52,28 +64,32 @@
     <summary class="font-bold text-lg cursor-pointer">⚙️ Pengaturan</summary>
     <div class="mt-3 space-y-3">
       <div>
-        <label class="text-sm font-semibold">URL Web App Google Apps Script (/exec)</label>
-        <input id="url" class="inp mt-1" type="url" placeholder="https://script.google.com/macros/s/.../exec">
-        <div class="grid grid-cols-2 gap-2 mt-2">
-          <button id="btnSimpan" class="btn bg-emerald-700 text-white">💾 Simpan URL</button>
-          <button id="btnTest" class="btn bg-emerald-100 text-emerald-900">📥 Test Baca Siswa</button>
-        </div>
-      </div>
-      <div>
-        <label class="text-sm font-semibold">Nama Pengawas</label>
-        <input id="pengawas" class="inp mt-1" placeholder="cth: Ust. Ahmad / Bu Rina (piket)">
+        <label class="text-sm font-semibold">PIN Pengawas (dari admin)</label>
+        <input id="pin" class="inp mt-1" type="password" inputmode="numeric" autocomplete="off" placeholder="Masukkan PIN">
+        <button id="btnMasuk" class="btn bg-emerald-700 text-white w-full mt-2">🔓 Masuk</button>
+        <div id="infoMasuk" class="text-sm font-semibold mt-1"></div>
       </div>
       <div>
         <label class="text-sm font-semibold">Jenis Sholat</label>
-        <div class="grid grid-cols-2 gap-2 mt-1">
-          <button data-j="Dhuhur" class="btnJenis btn border-2 border-emerald-300">☀️ Dhuhur</button>
-          <button data-j="Ashar" class="btnJenis btn border-2 border-emerald-300">🌤️ Ashar</button>
+        <div class="grid grid-cols-3 gap-2 mt-1">
+          <button data-j="auto" class="btnJenis btn !px-1 text-sm border-2 border-emerald-300">🕐 Otomatis</button>
+          <button data-j="Dhuhur" class="btnJenis btn !px-1 text-sm border-2 border-emerald-300">☀️ Dhuhur</button>
+          <button data-j="Ashar" class="btnJenis btn !px-1 text-sm border-2 border-emerald-300">🌤️ Ashar</button>
         </div>
+        <div class="text-xs text-emerald-700 mt-1">Otomatis: sebelum jam <span id="batasJam"></span> = Dhuhur, sesudahnya = Ashar.</div>
       </div>
-      <div>
-        <div class="text-sm font-semibold">Debug JSON</div>
-        <pre id="debug" class="mt-1 bg-emerald-950 text-emerald-200 text-xs rounded-xl p-3 max-h-48 overflow-auto whitespace-pre-wrap">Belum ada data.</pre>
-      </div>
+      <details class="rounded-xl border border-emerald-100 p-3">
+        <summary class="font-semibold cursor-pointer text-sm">🔧 Admin</summary>
+        <div class="mt-2 space-y-2">
+          <label class="text-sm font-semibold">Alamat server Google Apps Script (/exec)</label>
+          <input id="url" class="inp" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+          <div class="grid grid-cols-2 gap-2">
+            <button id="btnSimpan" class="btn bg-emerald-700 text-white !py-2 text-sm">💾 Simpan</button>
+            <button id="btnTest" class="btn bg-emerald-100 text-emerald-900 !py-2 text-sm">📥 Tarik Siswa</button>
+          </div>
+          <pre id="debug" class="bg-emerald-950 text-emerald-200 text-xs rounded-xl p-3 max-h-48 overflow-auto whitespace-pre-wrap">Belum ada data.</pre>
+        </div>
+      </details>
     </div>
   </details>
 
@@ -83,16 +99,25 @@
       <h2 class="font-bold text-lg">📷 Scan QR Siswa</h2>
       <span id="infoScan" class="text-sm font-bold text-emerald-700"></span>
     </div>
+    <div id="sesiBig" class="rounded-xl bg-emerald-100 text-emerald-900 text-center font-extrabold py-2 mb-2"></div>
     <div id="reader" class="rounded-2xl overflow-hidden bg-emerald-100 min-h-[120px] flex items-center justify-center text-emerald-700 text-sm">Kamera belum aktif</div>
     <div class="grid grid-cols-2 gap-2 mt-3">
       <button id="btnMulai" class="btn bg-emerald-700 text-white text-lg">▶ Mulai Scan</button>
       <button id="btnStop" class="btn bg-red-100 text-red-700 text-lg" disabled>■ Stop</button>
     </div>
+    <button id="btnCekMode" class="btn w-full mt-2 border-2 border-sky-300 text-sky-800 !py-2">🔎 Mode Cek: OFF (scan akan mencatat)</button>
+  </section>
+
+  <!-- CEK SISWA -->
+  <section class="bg-white rounded-2xl shadow p-4">
+    <h2 class="font-bold text-lg mb-2">🔎 Cek Siswa</h2>
+    <input id="cekCari" class="inp" placeholder="Ketik nama atau NIS siswa...">
+    <ul id="cekList" class="divide-y divide-emerald-100 mt-2"></ul>
   </section>
 
   <!-- RIWAYAT -->
   <section class="bg-white rounded-2xl shadow p-4">
-    <h2 class="font-bold text-lg mb-2">🕘 5 Scan Terakhir</h2>
+    <h2 class="font-bold text-lg mb-2">🕘 10 Scan Terakhir</h2>
     <ul id="riwayat" class="divide-y divide-emerald-100"></ul>
   </section>
 
@@ -137,7 +162,7 @@
     </div>
   </details>
 
-  <p class="text-center text-xs text-emerald-700 pb-6">Scan dikirim otomatis ke Google Spreadsheet di latar belakang.</p>
+  <p class="text-center text-xs text-emerald-700 pb-6">Scan disimpan di HP lebih dulu, lalu dikirim otomatis ke Google Spreadsheet.</p>
 </main>
 
 <!-- NOTIFIKASI BESAR -->
@@ -153,11 +178,17 @@
   const a=document.createElement('link');a.rel='apple-touch-icon';a.href=icon;document.head.appendChild(a);
 })();
 
+/* ================= PENGATURAN YANG BOLEH DIUBAH ADMIN ================= */
+const URL_DEFAULT='';     // isi alamat /exec di sini agar pengawas tidak perlu mengetik apa pun
+const BATAS_ASHAR=14;     // jam WITA: sebelum jam ini = Dhuhur, mulai jam ini = Ashar
+const BATCH_MAX=40;       // jumlah scan per kiriman
+/* ===================================================================== */
+
 const $=id=>document.getElementById(id);
 const TZ='Asia/Makassar';
 const ls={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
-  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
 };
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const tgl=(d=new Date())=>d.toLocaleDateString('sv-SE',{timeZone:TZ});
@@ -167,54 +198,64 @@ const kcmp=(a,b)=>String(a).localeCompare(String(b),'id',{numeric:true});
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
 /* ---------- data ---------- */
-let cfg=ls.get('cfg',{url:'',pengawas:'',jenis:'Dhuhur'});
+let cfg=Object.assign({url:URL_DEFAULT,pin:'',nama:'',jenis:'auto'},ls.get('cfg',{}));
+if(!cfg.v2){cfg.jenis='auto';cfg.v2=1;ls.set('cfg',cfg)}
+if(!cfg.url)cfg.url=URL_DEFAULT;
 let siswa=ls.get('siswa',[]), riwayat=ls.get('riwayat',[]);
 // outbox = scan yang BELUM dikonfirmasi Spreadsheet (tersimpan permanen di HP sampai terkirim)
 let outbox=ls.get('outbox',[]);
-// sent = scan hari ini yang SUDAH dikonfirmasi Spreadsheet  { "nis|tanggal|jenis": "jam" }
+// sent = scan yang SUDAH dikonfirmasi Spreadsheet: { "nis|tanggal|jenis": {j:jam,t:waktuKonfirmasi,o:dataScan} }
 let sent=ls.get('sent',{});
-let absenSrv=ls.get('absenSrv',{tgl:'',data:[]});
-let rekapJenis=cfg.jenis||'Dhuhur', rekapFilter='semua', rekapWaktu=ls.get('rekapWaktu',''), rekapErr='';
+let absenSrv=ls.get('absenSrv',{tgl:'',data:[],at:0});
+let rekapJenis='Dhuhur', rekapFilter='semua', rekapWaktu=ls.get('rekapWaktu',''), rekapErr='';
 let lastSync=ls.get('lastSync','');
-let syncing=false, syncErr='', fails=0, syncTimer=null, pulling=false;
-let scanner=null, paused=false, running=false, ac=null, nt=null, lastN=null;
+let syncing=false, syncErr='', fails=0, syncTimer=null, pulling=false, bs=BATCH_MAX, siswaTry=0;
+let scanner=null, paused=false, running=false, ac=null, nt=null, lastN=null, cekMode=false;
 const cool={}, bukaKelas=new Set();
 const saveOutbox=()=>ls.set('outbox',outbox);
-
-// migrasi dari versi lama (antrean "queue" / penanda "okLocal")
-(function(){
-  const q=ls.get('queue',[]), ok=ls.get('okLocal',{});
-  q.forEach(p=>{
-    if(!outbox.some(o=>nk(o.nis)===nk(p.nis)&&o.jenisSholat===p.jenisSholat&&o.waktu===p.waktu))
-      outbox.push({id:uid(),nis:p.nis,nama:p.nama,kelas:p.kelas,jenisSholat:p.jenisSholat,pengawas:p.pengawas,waktu:p.waktu,tries:0});
-  });
-  Object.keys(ok).forEach(k=>{const [n,d,j]=k.split('|');sent[`${nk(n)}|${d}|${j}`]=ok[k]});
-  if(q.length||Object.keys(ok).length){saveOutbox();ls.set('sent',sent)}
-  ['queue','scanned','okLocal'].forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});
-})();
+const saveCfg=()=>ls.set('cfg',cfg);
 
 let idxFor=null, idx=null;
 function cariSiswa(n){
   if(idxFor!==siswa){idx=new Map(siswa.map(s=>[nk(s.nis),s]));idxFor=siswa}
   return idx.get(nk(n));
 }
+function jenisNow(){
+  if(cfg.jenis!=='auto')return cfg.jenis;
+  const [h,m]=jam().split(':').map(Number);
+  return (h+m/60)>=BATAS_ASHAR?'Ashar':'Dhuhur';
+}
 // siapa saja yang sudah absen (hari ini, per jenis): ok=true sudah di Spreadsheet, ok=false masih antre di HP
 function sudahMap(jenis){
   const m=new Map(), t=tgl();
   outbox.forEach(o=>{
-    if(o.jenisSholat===jenis&&tgl(new Date(o.waktu))===t)m.set(nk(o.nis),{jam:jam(new Date(o.waktu)),ok:false});
+    if(o.jenisSholat===jenis&&tgl(new Date(o.waktu))===t)m.set(nk(o.nis),{jam:jam(new Date(o.waktu)),ok:false,p:o.pengawas||cfg.nama});
   });
   Object.keys(sent).forEach(k=>{
     const [n,d,j]=k.split('|');
-    if(d===t&&j===jenis)m.set(n,{jam:sent[k],ok:true});
+    if(d===t&&j===jenis){const v=sent[k];m.set(n,{jam:typeof v==='string'?v:v.j,ok:true,p:(v&&v.o&&v.o.pengawas)||''})}
   });
-  if(absenSrv.tgl===t)absenSrv.data.forEach(a=>{if(a.jenis===jenis)m.set(nk(a.nis),{jam:a.jam||'',ok:true})});
+  if(absenSrv.tgl===t)absenSrv.data.forEach(a=>{if(a.jenis===jenis)m.set(nk(a.nis),{jam:a.jam||'',ok:true,p:a.pengawas||''})});
   return m;
 }
 function pruneSent(){
   const t=tgl();
   Object.keys(sent).forEach(k=>{if(k.split('|')[1]!==t)delete sent[k]});
   ls.set('sent',sent);
+}
+// scan yang pernah dikonfirmasi server tetapi tidak terlihat di data Spreadsheet terbaru
+function hilangList(){
+  const t=tgl();
+  if(absenSrv.tgl!==t||!absenSrv.at)return [];
+  const ada=new Set(absenSrv.data.map(a=>nk(a.nis)+'|'+a.jenis));
+  const out=[];
+  Object.keys(sent).forEach(k=>{
+    const [n,d,j]=k.split('|'), v=sent[k];
+    if(d!==t||!v||typeof v==='string'||!v.o||!v.t)return;
+    if(absenSrv.at-v.t<90000)return;
+    if(!ada.has(n+'|'+j))out.push(k);
+  });
+  return out;
 }
 
 /* ---------- suara ---------- */
@@ -244,32 +285,45 @@ function notif(t,o,ms=3000){
     <div class="text-8xl">${c[1]}</div>
     <div class="text-3xl font-extrabold mt-3 leading-tight">${esc(nama)}</div>
     <div class="text-lg opacity-95 mt-2 font-semibold">${esc(info)}</div>
-    <div class="mt-4 bg-white/20 rounded-2xl p-3 text-xl font-bold leading-snug">${esc(status)}</div></div>`;
+    <div class="mt-4 bg-white/20 rounded-2xl p-3 text-xl font-bold leading-snug whitespace-pre-line">${esc(status)}</div></div>`;
   $('notif').classList.remove('hidden');$('notif').classList.add('flex');
   clearTimeout(nt);nt=setTimeout(hideNotif,ms);
 }
-// ubah isi notifikasi yang sedang tampil begitu Spreadsheet menjawab
 function notifUpdate(id,t,status){
   if(!id||!lastN||lastN.id!==id||$('notif').classList.contains('hidden'))return;
   notif(t,{...lastN,status},1800);
 }
 
 /* ---------- tampilan ---------- */
+function renderSesi(){
+  const j=jenisNow();
+  $('sesiBig').textContent=(j==='Dhuhur'?'☀️ ':'🌤️ ')+'Sesi sekarang: '+j.toUpperCase()+(cfg.jenis==='auto'?' (otomatis)':' (manual)');
+  $('infoScan').textContent=cfg.nama||'';
+  $('batasJam').textContent=String(BATAS_ASHAR).padStart(2,'0')+':00';
+}
 function render(){
   document.querySelectorAll('.btnJenis').forEach(b=>{
     const on=b.dataset.j===cfg.jenis;
-    b.className='btnJenis btn border-2 '+(on?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
+    b.className='btnJenis btn !px-1 text-sm border-2 '+(on?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
   });
+  $('chipNama').textContent=cfg.nama?`👤 ${cfg.nama}`:'👤 Belum masuk';
   $('chipSiswa').textContent=`👥 ${siswa.length} siswa siap`;
-  $('infoScan').textContent=`${cfg.jenis}${cfg.pengawas?' • '+cfg.pengawas:''}`;
+  renderSesi();
   const stCls=st=>st.startsWith('✅')?'text-emerald-700':(st.startsWith('⚠️')?'text-orange-600':'text-amber-600');
   $('riwayat').innerHTML=riwayat.length?riwayat.map(r=>`<li class="py-2 flex justify-between gap-2">
     <div><div class="font-bold">${esc(r.nama)}</div><div class="text-xs text-emerald-700">${esc(r.kelas)} • ${esc(r.nis)} • ${esc(r.jenis)}</div></div>
     <div class="text-right text-sm shrink-0"><div class="font-bold">${esc(r.jam)}</div><div class="font-semibold ${stCls(r.st)}">${esc(r.st)}</div></div></li>`).join('')
     :'<li class="py-3 text-sm text-emerald-700">Belum ada scan.</li>';
   renderSync();
+  renderHilang();
+  renderCek();
   renderSiswa();
   renderRekap();
+}
+function renderHilang(){
+  const h=hilangList();
+  $('boxHilang').classList.toggle('hidden',!h.length);
+  if(h.length)$('hilangJudul').textContent=`⚠️ ${h.length} scan tidak terlihat di Spreadsheet`;
 }
 function renderSync(){
   const n=outbox.length, c=$('chipSync');
@@ -283,9 +337,9 @@ function renderSync(){
   $('boxAntre').classList.toggle('hidden',!n);
   if(!n)return;
   $('antreJudul').textContent=`⏳ ${n} data belum masuk Spreadsheet`;
-  $('antreInfo').textContent=!navigator.onLine?'HP sedang offline. Data aman di HP ini dan dikirim otomatis begitu ada sinyal.'
+  $('antreInfo').textContent=!navigator.onLine?'HP sedang offline. Data aman di HP ini dan dikirim otomatis begitu ada sinyal. Jangan hapus data browser.'
     :syncing?'Sedang mengirim…':(syncErr?`Gagal: ${syncErr}. Mencoba lagi otomatis.`:'Dikirim otomatis di latar belakang.');
-  $('antreList').innerHTML=outbox.slice(0,8).map(o=>`<li class="py-1 flex justify-between gap-2"><span class="font-semibold">${esc(o.nama)} <span class="text-xs font-normal">${esc(o.kelas)} • ${esc(o.jenisSholat)}</span></span><span class="shrink-0 text-xs font-bold">${jam(new Date(o.waktu))}${o.tries?' • coba '+(o.tries+1):''}</span></li>`).join('')
+  $('antreList').innerHTML=outbox.slice(0,8).map(o=>`<li class="py-1 flex justify-between gap-2"><span class="font-semibold">${esc(o.nama)} <span class="text-xs font-normal">${esc(o.kelas)} • ${esc(o.jenisSholat)}${o.err?' • '+esc(o.err):''}</span></span><span class="shrink-0 text-xs font-bold">${jam(new Date(o.waktu))}${o.tries?' • coba '+(o.tries+1):''}</span></li>`).join('')
     +(n>8?`<li class="py-1 text-xs">+${n-8} lainnya</li>`:'');
 }
 function renderSiswa(){
@@ -293,52 +347,104 @@ function renderSiswa(){
   const q=($('cari').value||'').toLowerCase();
   const f=siswa.filter(s=>!q||`${s.nis} ${s.nama} ${s.kelas}`.toLowerCase().includes(q));
   $('cacheInfo').textContent=`Menampilkan ${Math.min(f.length,100)} dari ${f.length} siswa`+(ls.get('siswaTime','')?` • ditarik ${ls.get('siswaTime','')}`:'');
-  $('listSiswa').innerHTML=f.slice(0,100).map(s=>`<li class="py-1.5"><b>${esc(s.nama)}</b><div class="text-xs text-emerald-700">${esc(s.kelas)} • ${esc(s.nis)}</div></li>`).join('')||'<li class="py-2">Data kosong. Tarik data siswa di Pengaturan.</li>';
+  $('listSiswa').innerHTML=f.slice(0,100).map(s=>`<li class="py-1.5"><b>${esc(s.nama)}</b><div class="text-xs text-emerald-700">${esc(s.kelas)} • ${esc(s.nis)}</div></li>`).join('')||'<li class="py-2">Data kosong. Masuk dengan PIN dulu.</li>';
 }
 function addRiwayat(o,st){
   riwayat.unshift({id:o.id,nama:o.nama,kelas:o.kelas,nis:o.nis,jenis:o.jenisSholat,jam:jam(new Date(o.waktu)),st});
-  riwayat=riwayat.slice(0,5);ls.set('riwayat',riwayat);
+  riwayat=riwayat.slice(0,10);ls.set('riwayat',riwayat);
 }
 function setRiwayat(id,st){
   const r=riwayat.find(x=>x.id===id);
   if(r){r.st=st;ls.set('riwayat',riwayat)}
 }
 
-/* ---------- pengaturan ---------- */
-function fillSettings(){$('url').value=cfg.url||'';$('pengawas').value=cfg.pengawas||''}
-function saveCfg(){
-  cfg.url=$('url').value.trim();cfg.pengawas=$('pengawas').value.trim();
-  ls.set('cfg',cfg);render();
+/* ---------- cek siswa (bukti untuk siswa yang bertanya) ---------- */
+function ringkasStatus(j,x){
+  return x?(x.ok?`✅ ${j} ${x.jam}`:`⏳ ${j} ${x.jam} (menunggu kirim)`):`❌ ${j} belum`;
 }
-$('btnSimpan').onclick=()=>{saveCfg();$('debug').textContent='✔ URL & nama pengawas tersimpan.';kickSync(0);pullAbsen()};
-$('pengawas').onchange=saveCfg;
-document.querySelectorAll('.btnJenis').forEach(b=>b.onclick=()=>{cfg.jenis=b.dataset.j;ls.set('cfg',cfg);render()});
+function renderCek(){
+  const box=$('cekList'), q=($('cekCari').value||'').toLowerCase().trim();
+  if(q.length<2){box.innerHTML='<li class="py-2 text-sm text-emerald-700">Ketik minimal 2 huruf nama atau NIS siswa.</li>';return}
+  const f=siswa.filter(s=>`${s.nama} ${s.nis}`.toLowerCase().includes(q));
+  if(!f.length){box.innerHTML='<li class="py-2 text-sm text-red-600 font-semibold">Siswa tidak ditemukan.</li>';return}
+  const mD=sudahMap('Dhuhur'), mA=sudahMap('Ashar');
+  const bar=(x,j)=>x?(x.ok?`<span class="text-emerald-700">✅ ${j} jam ${esc(x.jam)}${x.p?' • '+esc(x.p):''}</span>`
+    :`<span class="text-amber-600">⏳ ${j} jam ${esc(x.jam)} • menunggu kirim</span>`)
+    :`<span class="text-red-600">❌ ${j} belum</span>`;
+  let html=f.slice(0,8).map(s=>{
+    const k=nk(s.nis);
+    return `<li class="py-2"><div class="font-bold">${esc(s.nama)}</div><div class="text-xs text-emerald-700">${esc(s.kelas)} • ${esc(s.nis)}</div>
+      <div class="text-sm font-semibold mt-1"><div>${bar(mD.get(k),'Dhuhur')}</div><div>${bar(mA.get(k),'Ashar')}</div></div></li>`;
+  }).join('');
+  if(f.length>8)html+=`<li class="py-1 text-xs">+${f.length-8} lainnya, persempit pencarian</li>`;
+  box.innerHTML=html;
+}
+$('cekCari').oninput=renderCek;
+$('btnCekMode').onclick=()=>{
+  cekMode=!cekMode;
+  $('btnCekMode').textContent=cekMode?'🔎 Mode Cek: ON (scan TIDAK mencatat)':'🔎 Mode Cek: OFF (scan akan mencatat)';
+  $('btnCekMode').className='btn w-full mt-2 border-2 !py-2 '+(cekMode?'bg-sky-600 text-white border-sky-600':'border-sky-300 text-sky-800');
+};
+
+/* ---------- login & pengaturan ---------- */
+function fillSettings(){$('url').value=cfg.url||''}
+function apiUrl(action){
+  return cfg.url+(cfg.url.includes('?')?'&':'?')+'action='+action+'&pin='+encodeURIComponent(cfg.pin||'');
+}
+function pinSalah(){
+  cfg.nama='';saveCfg();render();
+  $('panelSet').open=true;
+  $('infoMasuk').textContent='❌ PIN salah atau sudah dicabut. Masukkan PIN lagi.';
+}
+$('btnSimpan').onclick=()=>{
+  cfg.url=$('url').value.trim();saveCfg();render();
+  $('debug').textContent='✔ Alamat server tersimpan.';
+};
+$('btnMasuk').onclick=async()=>{
+  const pin=$('pin').value.trim(), info=$('infoMasuk');
+  cfg.url=$('url').value.trim()||cfg.url;
+  if(!cfg.url){info.textContent='❌ Alamat server belum diisi (menu Admin).';return}
+  if(!pin){info.textContent='❌ Isi PIN dulu.';return}
+  info.textContent='⏳ Memeriksa…';
+  try{
+    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=cek&pin='+encodeURIComponent(pin));
+    const j=await r.json();
+    if(j.status==='sukses'){
+      cfg.pin=pin;cfg.nama=j.nama;saveCfg();
+      $('pin').value='';info.textContent='✅ Masuk sebagai '+j.nama;
+      render();kickSync(0);tarikSiswa(true);pullAbsen();
+      setTimeout(()=>{$('panelSet').open=false},800);
+    }else info.textContent='❌ '+(j.pesan||'PIN salah');
+  }catch(e){info.textContent='❌ Tidak bisa terhubung: '+e.message}
+};
+document.querySelectorAll('.btnJenis').forEach(b=>b.onclick=()=>{cfg.jenis=b.dataset.j;saveCfg();render()});
 $('cari').oninput=renderSiswa;
 $('panelSiswa').addEventListener('toggle',renderSiswa);
 
 async function tarikSiswa(silent){
-  if(!cfg.url){if(!silent)$('debug').textContent='❌ Isi URL Web App dulu.';return}
+  if(!cfg.url||!cfg.pin){if(!silent)$('debug').textContent='❌ Isi alamat server dan masuk dengan PIN dulu.';return}
   if(!silent)$('debug').textContent='⏳ Memuat data siswa...';
   try{
-    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=getSiswa');
+    const r=await fetch(apiUrl('getSiswa'));
     const j=await r.json();
     if(!silent)$('debug').textContent=JSON.stringify(j,null,2).slice(0,3500);
+    if(j.kode==='PIN'){pinSalah();return}
     if(j.status==='sukses'&&Array.isArray(j.data)&&(j.data.length||!silent)){
       siswa=j.data;ls.set('siswa',siswa);
       ls.set('siswaTime',tgl()+' '+jam());ls.set('siswaTs',Date.now());render();
     }
   }catch(e){
-    if(!silent)$('debug').textContent='❌ Gagal: '+e.message+'\n\nPeriksa: URL berakhiran /exec, Web App di-deploy "Anyone", dan HP online.';
+    if(!silent)$('debug').textContent='❌ Gagal: '+e.message+'\n\nPeriksa: alamat berakhiran /exec, Web App di-deploy "Anyone", dan HP online.';
   }
 }
-$('btnTest').onclick=()=>{saveCfg();tarikSiswa(false)};
-function autoSiswa(){ // data siswa dipanggil ulang otomatis tiap 6 jam
-  if(!cfg.url||!navigator.onLine)return;
-  if(Date.now()-ls.get('siswaTs',0)>6*3600*1000)tarikSiswa(true);
+$('btnTest').onclick=()=>{cfg.url=$('url').value.trim();saveCfg();tarikSiswa(false)};
+function autoSiswa(){
+  if(!cfg.url||!cfg.pin||!navigator.onLine)return;
+  if(Date.now()-ls.get('siswaTs',0)>3*3600*1000)tarikSiswa(true);
 }
 
 /* ---------- kirim ke Spreadsheet (latar belakang, per kelompok) ---------- */
-async function post(p,ms=25000){
+async function post(p,ms=45000){
   const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
   try{
     const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(p),signal:c.signal});
@@ -349,87 +455,127 @@ function kickSync(ms=1200){clearTimeout(syncTimer);syncTimer=setTimeout(syncNow,
 async function syncNow(){
   if(syncing)return;
   if(!outbox.length){syncErr='';fails=0;renderSync();return}
-  if(!cfg.url){syncErr='URL Web App belum diisi';renderSync();return}
+  if(!cfg.url){syncErr='alamat server belum diisi';renderSync();return}
+  if(!cfg.pin){syncErr='belum masuk dengan PIN';renderSync();return}
   if(!navigator.onLine){renderSync();return}
   syncing=true;renderSync();
-  const batch=outbox.slice(0,30);
-  let galat='';
+  const batch=outbox.slice(0,bs);
+  let galat='',fatal=false,maju=false;
   try{
-    const j=await post({batch:batch.map(o=>({id:o.id,nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu}))});
+    const j=await post({pin:cfg.pin,batch:batch.map(o=>({id:o.id,nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu}))});
+    if(j.kode==='PIN'){fatal=true;throw new Error(j.pesan||'PIN salah')}
     if(j.status!=='sukses'||!Array.isArray(j.hasil))throw new Error(j.pesan||'server menolak');
-    galat=terapkanHasil(batch,j.hasil);
+    const r=terapkanHasil(batch,j.hasil);
+    galat=r.galat;maju=r.maju;
+    bs=Math.min(BATCH_MAX,bs+10);
     lastSync=jam();ls.set('lastSync',lastSync);
   }catch(e){
     galat=e.name==='AbortError'?'server lambat (timeout)':(e.message||'sinyal putus');
     batch.forEach(o=>{o.tries=(o.tries||0)+1});saveOutbox();
+    bs=Math.max(10,Math.floor(bs/2)); // kiriman lebih kecil bila jaringan buruk
   }
-  syncing=false;syncErr=galat;fails=galat?fails+1:0;
+  syncing=false;syncErr=galat;fails=(galat&&!maju)?fails+1:0;
+  if(fatal)pinSalah();
   render();
-  if(outbox.length)kickSync(galat?Math.min(30000,2000*2**Math.min(fails,4)):300);
-  else pullAbsen(); // semua terkirim: samakan dengan data semua pengawas
+  if(outbox.length){
+    const d=fatal?60000:(galat&&!maju?Math.min(60000,2000*2**Math.min(fails,5))+Math.random()*1500:200);
+    kickSync(d);
+  }else pullAbsen();
 }
 // data keluar dari antrean HANYA jika Spreadsheet menjawab sukses/duplikat untuk data itu
 function terapkanHasil(batch,hasil){
-  const peta=new Map(hasil.map(h=>[h.id,h])), selesai=new Set();
+  const peta=new Map(hasil.map(h=>[h.id,h])), selesai=new Set(), gagal=[];
   let galat='';
   batch.forEach(o=>{
     const h=peta.get(o.id);
     if(!h){galat=galat||'jawaban server tidak lengkap';o.tries=(o.tries||0)+1;return}
     if(h.status==='sukses'||h.status==='duplikat'){
-      sent[`${nk(o.nis)}|${tgl(new Date(o.waktu))}|${o.jenisSholat}`]=h.jam||jam(new Date(o.waktu));
+      sent[`${nk(o.nis)}|${tgl(new Date(o.waktu))}|${o.jenisSholat}`]={
+        j:h.jam||jam(new Date(o.waktu)),t:Date.now(),
+        o:{nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu}
+      };
       selesai.add(o.id);
-      const lain=h.status==='duplikat'&&!o.tries; // duplikat di kiriman pertama = sudah dicatat pengawas lain
+      const lain=h.status==='duplikat'&&!o.tries;
       setRiwayat(o.id,lain?'⚠️ Sudah ada':'✅ Tersimpan');
-      notifUpdate(o.id,lain?'dup':'ok',lain?'⚠️ SUDAH ADA - sudah dicatat pengawas lain':`✅ TERSIMPAN DI SPREADSHEET jam ${jam(new Date(o.waktu))}`);
+      notifUpdate(o.id,lain?'dup':'ok',lain?'⚠️ SUDAH ADA - sudah dicatat pengawas lain':`✅ MASUK SPREADSHEET jam ${jam(new Date(o.waktu))}`);
     }else{
-      o.tries=(o.tries||0)+1;o.err=h.pesan||'error';galat=galat||o.err;
+      o.tries=(o.tries||0)+1;o.err=h.pesan||'error';galat=galat||o.err;gagal.push(o);
     }
   });
-  outbox=outbox.filter(o=>!selesai.has(o.id));
+  // data yang ditolak server dipindah ke belakang agar tidak menghalangi data lain
+  outbox=outbox.filter(o=>!selesai.has(o.id)&&!gagal.includes(o)).concat(gagal);
   saveOutbox();pruneSent();
-  return galat;
+  return {galat,maju:selesai.size>0};
 }
 $('btnSync').onclick=()=>kickSync(0);
 $('chipSync').onclick=()=>{kickSync(0);pullAbsen(true)};
+$('btnUlang').onclick=()=>{
+  hilangList().forEach(k=>{const v=sent[k];if(v&&v.o){outbox.push({...v.o,id:uid(),tries:0});delete sent[k]}});
+  saveOutbox();ls.set('sent',sent);render();kickSync(0);
+};
+$('btnAbaikan').onclick=()=>{
+  hilangList().forEach(k=>{delete sent[k]});
+  ls.set('sent',sent);render();
+};
 window.addEventListener('online',()=>{render();kickSync(0);pullAbsen();autoSiswa()});
 window.addEventListener('offline',render);
+window.addEventListener('beforeunload',e=>{if(outbox.length){e.preventDefault();e.returnValue=''}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){kickSync(0);pullAbsen()}});
-setInterval(()=>{if(outbox.length&&!syncing)kickSync(0)},15000); // jaring pengaman
+setInterval(()=>{if(outbox.length&&!syncing)kickSync(0)},15000);
 setInterval(()=>{if(document.visibilityState==='visible')pullAbsen()},60000);
 setInterval(autoSiswa,30*60*1000);
+setInterval(renderSesi,30000);
 
 /* ---------- scan (instan, tidak menunggu internet) ---------- */
 function onScan(txt){
   if(paused)return;
   const nis=String(txt).trim(), now=Date.now();
-  if(cool[nis]&&now-cool[nis]<4000)return; // QR yang sama masih di depan kamera: abaikan diam-diam
+  if(cool[nis]&&now-cool[nis]<4000)return;
   cool[nis]=now;
   if(Object.keys(cool).length>300)Object.keys(cool).forEach(k=>{if(now-cool[k]>60000)delete cool[k]});
   paused=true;setTimeout(()=>paused=false,1000);
 
   const s=cariSiswa(nis);
-  if(!s){beep('err');notif('err',{nama:'NIS tidak dikenal',info:nis,status:'Tarik ulang data siswa atau cek kartu'});return}
+  if(!s){
+    beep('err');notif('err',{nama:'NIS tidak dikenal',info:nis,status:'Bukan siswa terdaftar. Data siswa ditarik ulang, coba scan lagi.'});
+    if(Date.now()-siswaTry>60000){siswaTry=Date.now();tarikSiswa(true)}
+    return;
+  }
 
-  const jenis=cfg.jenis, info=`${s.kelas} - ${s.nis} - ${jenis}`;
+  // MODE CEK: hanya menampilkan status, tidak mencatat apa pun
+  if(cekMode){
+    const a=sudahMap('Dhuhur').get(nk(s.nis)), b=sudahMap('Ashar').get(nk(s.nis));
+    const cur=jenisNow()==='Dhuhur'?a:b;
+    beep(cur?'ok':'err');
+    notif(cur?(cur.ok?'ok':'q'):'err',{nama:s.nama,info:`${s.kelas} - ${s.nis} - MODE CEK`,status:ringkasStatus('Dhuhur',a)+'\n'+ringkasStatus('Ashar',b)},4500);
+    return;
+  }
+
+  const jenis=jenisNow(), info=`${s.kelas} - ${s.nis} - ${jenis}`;
   const ada=sudahMap(jenis).get(nk(s.nis));
   if(ada){
     beep('err');
     notif('dup',{nama:s.nama,info,status:`⚠️ SUDAH ABSEN ${jenis} jam ${ada.jam}`+(ada.ok?'':' (masih menunggu kirim)')});
     return;
   }
-  const o={id:uid(),nis:s.nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.pengawas,waktu:new Date().toISOString(),tries:0};
-  outbox.push(o);saveOutbox();               // aman di HP lebih dulu
+  const o={id:uid(),nis:s.nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.nama,waktu:new Date().toISOString(),tries:0};
+  outbox.push(o);
+  if(!saveOutbox()){ // HP gagal menyimpan: JANGAN pura-pura tercatat
+    outbox.pop();delete cool[nis];
+    beep('err');
+    notif('err',{nama:s.nama,info,status:'❌ GAGAL DISIMPAN di HP (penyimpanan penuh/diblokir). Scan TIDAK tercatat. Scan ulang setelah memperbaiki.'},6000);
+    return;
+  }
   const online=navigator.onLine&&cfg.url;
   beep('ok');
-  notif(online?'ok':'q',{id:o.id,nama:s.nama,info,status:online?`✅ TERCATAT jam ${jam()} • ⏳ mengirim ke Spreadsheet…`:`📴 TERCATAT di HP jam ${jam()} • dikirim saat ada sinyal`});
+  notif(online?'ok':'q',{id:o.id,nama:s.nama,info,status:online?`✅ DITERIMA jam ${jam()}\n⏳ mengirim ke Spreadsheet…`:`📴 TERSIMPAN di HP jam ${jam()}\ndikirim saat ada sinyal`});
   addRiwayat(o,'⏳ Mengirim');
   render();
-  kickSync(1200); // kirim di latar belakang; beberapa scan digabung jadi satu kiriman
+  kickSync(1200);
 }
 $('btnMulai').onclick=async()=>{
-  if(!cfg.url)return alert('Isi dan simpan URL Web App dulu.');
-  if(!cfg.pengawas)return alert('Isi Nama Pengawas dulu.');
-  if(!siswa.length)return alert('Data siswa kosong. Klik "Test Baca Siswa" dulu.');
+  if(!cfg.url||!cfg.nama)return alert('Masuk dulu dengan PIN di Pengaturan.');
+  if(!siswa.length)return alert('Data siswa kosong. Masuk dengan PIN saat online, atau klik "Tarik Siswa" di menu Admin.');
   try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}
   $('reader').textContent='';
   try{
@@ -453,7 +599,7 @@ function renderRekap(){
   let sudahTotal=0,tunggu=0;
   siswa.forEach(s=>{const x=sd.get(nk(s.nis));if(x){sudahTotal++;if(!x.ok)tunggu++}});
   $('rekapRingkas').textContent=total?`${rekapJenis} ${sudahTotal}/${total}${tunggu?' • ⏳'+tunggu:''}`:'';
-  if(!$('panelRekap').open)return; // jangan menggambar daftar besar saat panel tertutup (cepat)
+  if(!$('panelRekap').open)return;
   document.querySelectorAll('.btnRJ').forEach(b=>{
     b.className='btnRJ btn !py-2 border-2 '+(b.dataset.j===rekapJenis?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
   });
@@ -462,7 +608,7 @@ function renderRekap(){
   });
   const box=$('rekapList');
   if(!total){
-    box.innerHTML='<p class="text-sm text-emerald-700">Data siswa kosong. Tarik data di Pengaturan dulu.</p>';return;
+    box.innerHTML='<p class="text-sm text-emerald-700">Data siswa kosong. Masuk dengan PIN dulu.</p>';return;
   }
   const q=($('rekapCari').value||'').toLowerCase().trim();
   const pct=Math.round(sudahTotal/total*100);
@@ -507,23 +653,25 @@ function renderRekap(){
 }
 async function pullAbsen(manual){
   if(pulling)return;
-  if(!cfg.url){if(manual===true){rekapErr='Isi URL Web App di Pengaturan dulu.';renderRekap()}return}
+  if(!cfg.url||!cfg.pin){if(manual===true){rekapErr='Masuk dengan PIN di Pengaturan dulu.';renderRekap()}return}
   if(!navigator.onLine){if(manual===true){rekapErr='HP sedang offline. Menampilkan data terakhir.';renderRekap()}return}
   pulling=true;
   const b=$('btnRekap');
   if(manual===true){b.disabled=true;b.textContent='⏳ Memuat...'}
   const c=new AbortController(),t=setTimeout(()=>c.abort(),20000);
   try{
-    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=getAbsen',{signal:c.signal});
+    const r=await fetch(apiUrl('getAbsen'),{signal:c.signal});
     const j=await r.json();
+    if(j.kode==='PIN'){pinSalah();throw new Error('PIN salah')}
     if(j.status!=='sukses')throw new Error(j.pesan||'server menolak');
-    absenSrv={tgl:j.tanggal,data:j.data};ls.set('absenSrv',absenSrv);
+    absenSrv={tgl:j.tanggal,data:j.data.map(a=>({nis:a[0],jenis:a[1],jam:a[2],pengawas:a[3]})),at:Date.now()};
+    ls.set('absenSrv',absenSrv);
     rekapWaktu=jam();ls.set('rekapWaktu',rekapWaktu);rekapErr='';
     if(!syncing&&!outbox.length){lastSync=jam();ls.set('lastSync',lastSync)}
   }catch(e){rekapErr='Gagal memuat rekap: '+(e.name==='AbortError'?'server lambat':e.message)}
   clearTimeout(t);pulling=false;
   b.disabled=false;b.textContent='🔄 Perbarui dari Spreadsheet';
-  renderRekap();renderSync();
+  render();
 }
 document.querySelectorAll('.btnRJ').forEach(b=>b.onclick=()=>{rekapJenis=b.dataset.j;renderRekap()});
 document.querySelectorAll('.btnRF').forEach(b=>b.onclick=()=>{rekapFilter=b.dataset.f;renderRekap()});
@@ -538,11 +686,12 @@ $('rekapList').addEventListener('toggle',e=>{
 },true);
 
 /* ---------- mulai ---------- */
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){} // minta HP jangan menghapus data
 fillSettings();
 render();
-if(!cfg.url)$('panelSet').open=true;
-kickSync(0);     // kirim sisa antrean dari sebelumnya
-pullAbsen();     // ambil data semua pengawas
+if(!cfg.nama)$('panelSet').open=true;
+kickSync(0);
+pullAbsen();
 autoSiswa();
 </script>
 </body>
