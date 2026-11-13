@@ -31,12 +31,21 @@
   </div>
   <div class="flex flex-wrap gap-2 mt-3 text-sm font-semibold">
     <span id="chipSiswa" class="bg-white/20 rounded-full px-3 py-1">👥 0 siswa siap</span>
-    <span id="chipAntre" class="bg-white/20 rounded-full px-3 py-1 hidden">📴 0 menunggu kirim</span>
-    <span id="chipNet" class="bg-white/20 rounded-full px-3 py-1">🟢 Online</span>
+    <button id="chipSync" class="bg-white/20 rounded-full px-3 py-1">☁️ Tersambung</button>
   </div>
 </header>
 
 <main class="p-4 space-y-4 max-w-lg mx-auto">
+
+  <!-- ANTREAN KIRIM: muncul hanya jika ada data yang belum masuk Spreadsheet -->
+  <section id="boxAntre" class="hidden rounded-2xl border-2 border-amber-400 bg-amber-50 p-4">
+    <div class="flex items-center justify-between gap-2">
+      <div id="antreJudul" class="font-extrabold text-amber-900 text-lg leading-tight"></div>
+      <button id="btnSync" class="btn bg-amber-500 text-white !py-2 !px-3 text-sm shrink-0">Kirim sekarang</button>
+    </div>
+    <div id="antreInfo" class="text-xs text-amber-800 mt-1"></div>
+    <ul id="antreList" class="mt-2 text-sm divide-y divide-amber-200 text-amber-950"></ul>
+  </section>
 
   <!-- PENGATURAN -->
   <details id="panelSet" class="bg-white rounded-2xl shadow p-4">
@@ -79,7 +88,6 @@
       <button id="btnMulai" class="btn bg-emerald-700 text-white text-lg">▶ Mulai Scan</button>
       <button id="btnStop" class="btn bg-red-100 text-red-700 text-lg" disabled>■ Stop</button>
     </div>
-    <button id="btnSync" class="btn bg-sky-100 text-sky-800 w-full mt-2 hidden">🔄 Kirim data yang menunggu</button>
   </section>
 
   <!-- RIWAYAT -->
@@ -105,6 +113,7 @@
           <div id="rekapPersen" class="text-lg font-bold text-emerald-700">0%</div>
         </div>
         <div class="h-3 bg-emerald-100 rounded-full overflow-hidden mt-1"><div id="rekapBar" class="h-full bg-emerald-600 rounded-full" style="width:0%"></div></div>
+        <div id="rekapPending" class="hidden text-xs font-bold text-amber-700 mt-1"></div>
       </div>
       <div class="grid grid-cols-3 gap-2">
         <button data-f="semua" class="btnRF btn !py-2 !px-1 text-sm border-2 border-emerald-300">Semua</button>
@@ -119,7 +128,7 @@
   </details>
 
   <!-- DATA SISWA -->
-  <details class="bg-white rounded-2xl shadow p-4">
+  <details id="panelSiswa" class="bg-white rounded-2xl shadow p-4">
     <summary class="font-bold text-lg cursor-pointer">📋 Data Siswa (cache)</summary>
     <div class="mt-3 space-y-2">
       <input id="cari" class="inp" placeholder="Cari nama / NIS / kelas...">
@@ -128,7 +137,7 @@
     </div>
   </details>
 
-  <p class="text-center text-xs text-emerald-700 pb-6">Scan tersimpan otomatis di Google Spreadsheet sekolah.</p>
+  <p class="text-center text-xs text-emerald-700 pb-6">Scan dikirim otomatis ke Google Spreadsheet di latar belakang.</p>
 </main>
 
 <!-- NOTIFIKASI BESAR -->
@@ -153,11 +162,60 @@ const ls={
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const tgl=(d=new Date())=>d.toLocaleDateString('sv-SE',{timeZone:TZ});
 const jam=(d=new Date())=>d.toLocaleTimeString('id-ID',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).replace('.',':');
+const nk=v=>String(v??'').trim().replace(/^0+/,'');
+const kcmp=(a,b)=>String(a).localeCompare(String(b),'id',{numeric:true});
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
+/* ---------- data ---------- */
 let cfg=ls.get('cfg',{url:'',pengawas:'',jenis:'Dhuhur'});
-let siswa=ls.get('siswa',[]), riwayat=ls.get('riwayat',[]), scanned=ls.get('scanned',{}), queue=ls.get('queue',[]);
-const pend={};
-let scanner=null, paused=false, running=false, ac=null, nt=null;
+let siswa=ls.get('siswa',[]), riwayat=ls.get('riwayat',[]);
+// outbox = scan yang BELUM dikonfirmasi Spreadsheet (tersimpan permanen di HP sampai terkirim)
+let outbox=ls.get('outbox',[]);
+// sent = scan hari ini yang SUDAH dikonfirmasi Spreadsheet  { "nis|tanggal|jenis": "jam" }
+let sent=ls.get('sent',{});
+let absenSrv=ls.get('absenSrv',{tgl:'',data:[]});
+let rekapJenis=cfg.jenis||'Dhuhur', rekapFilter='semua', rekapWaktu=ls.get('rekapWaktu',''), rekapErr='';
+let lastSync=ls.get('lastSync','');
+let syncing=false, syncErr='', fails=0, syncTimer=null, pulling=false;
+let scanner=null, paused=false, running=false, ac=null, nt=null, lastN=null;
+const cool={}, bukaKelas=new Set();
+const saveOutbox=()=>ls.set('outbox',outbox);
+
+// migrasi dari versi lama (antrean "queue" / penanda "okLocal")
+(function(){
+  const q=ls.get('queue',[]), ok=ls.get('okLocal',{});
+  q.forEach(p=>{
+    if(!outbox.some(o=>nk(o.nis)===nk(p.nis)&&o.jenisSholat===p.jenisSholat&&o.waktu===p.waktu))
+      outbox.push({id:uid(),nis:p.nis,nama:p.nama,kelas:p.kelas,jenisSholat:p.jenisSholat,pengawas:p.pengawas,waktu:p.waktu,tries:0});
+  });
+  Object.keys(ok).forEach(k=>{const [n,d,j]=k.split('|');sent[`${nk(n)}|${d}|${j}`]=ok[k]});
+  if(q.length||Object.keys(ok).length){saveOutbox();ls.set('sent',sent)}
+  ['queue','scanned','okLocal'].forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});
+})();
+
+let idxFor=null, idx=null;
+function cariSiswa(n){
+  if(idxFor!==siswa){idx=new Map(siswa.map(s=>[nk(s.nis),s]));idxFor=siswa}
+  return idx.get(nk(n));
+}
+// siapa saja yang sudah absen (hari ini, per jenis): ok=true sudah di Spreadsheet, ok=false masih antre di HP
+function sudahMap(jenis){
+  const m=new Map(), t=tgl();
+  outbox.forEach(o=>{
+    if(o.jenisSholat===jenis&&tgl(new Date(o.waktu))===t)m.set(nk(o.nis),{jam:jam(new Date(o.waktu)),ok:false});
+  });
+  Object.keys(sent).forEach(k=>{
+    const [n,d,j]=k.split('|');
+    if(d===t&&j===jenis)m.set(n,{jam:sent[k],ok:true});
+  });
+  if(absenSrv.tgl===t)absenSrv.data.forEach(a=>{if(a.jenis===jenis)m.set(nk(a.nis),{jam:a.jam||'',ok:true})});
+  return m;
+}
+function pruneSent(){
+  const t=tgl();
+  Object.keys(sent).forEach(k=>{if(k.split('|')[1]!==t)delete sent[k]});
+  ls.set('sent',sent);
+}
 
 /* ---------- suara ---------- */
 function beep(t){
@@ -178,7 +236,9 @@ function beep(t){
 
 /* ---------- notifikasi besar ---------- */
 function hideNotif(){$('notif').classList.add('hidden');$('notif').classList.remove('flex')}
-function notif(t,{nama='',info='',status=''}){
+function notif(t,o,ms=3000){
+  const {nama='',info='',status=''}=o;
+  lastN={t,...o};
   const c={ok:['bg-emerald-600','✅'],dup:['bg-amber-500','⚠️'],err:['bg-red-600','❌'],q:['bg-sky-600','📴']}[t];
   $('notif').innerHTML=`<div class="${c[0]} text-white rounded-3xl p-6 text-center shadow-2xl w-full max-w-sm">
     <div class="text-8xl">${c[1]}</div>
@@ -186,120 +246,185 @@ function notif(t,{nama='',info='',status=''}){
     <div class="text-lg opacity-95 mt-2 font-semibold">${esc(info)}</div>
     <div class="mt-4 bg-white/20 rounded-2xl p-3 text-xl font-bold leading-snug">${esc(status)}</div></div>`;
   $('notif').classList.remove('hidden');$('notif').classList.add('flex');
-  clearTimeout(nt);nt=setTimeout(hideNotif,3000);
+  clearTimeout(nt);nt=setTimeout(hideNotif,ms);
+}
+// ubah isi notifikasi yang sedang tampil begitu Spreadsheet menjawab
+function notifUpdate(id,t,status){
+  if(!id||!lastN||lastN.id!==id||$('notif').classList.contains('hidden'))return;
+  notif(t,{...lastN,status},1800);
 }
 
-/* ---------- render ---------- */
+/* ---------- tampilan ---------- */
 function render(){
-  $('url').value=cfg.url||'';$('pengawas').value=cfg.pengawas||'';
   document.querySelectorAll('.btnJenis').forEach(b=>{
     const on=b.dataset.j===cfg.jenis;
     b.className='btnJenis btn border-2 '+(on?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
   });
   $('chipSiswa').textContent=`👥 ${siswa.length} siswa siap`;
-  $('chipAntre').textContent=`📴 ${queue.length} menunggu kirim`;
-  $('chipAntre').classList.toggle('hidden',!queue.length);
-  $('btnSync').classList.toggle('hidden',!queue.length);
-  $('chipNet').textContent=navigator.onLine?'🟢 Online':'🔴 Offline';
   $('infoScan').textContent=`${cfg.jenis}${cfg.pengawas?' • '+cfg.pengawas:''}`;
+  const stCls=st=>st.startsWith('✅')?'text-emerald-700':(st.startsWith('⚠️')?'text-orange-600':'text-amber-600');
   $('riwayat').innerHTML=riwayat.length?riwayat.map(r=>`<li class="py-2 flex justify-between gap-2">
     <div><div class="font-bold">${esc(r.nama)}</div><div class="text-xs text-emerald-700">${esc(r.kelas)} • ${esc(r.nis)} • ${esc(r.jenis)}</div></div>
-    <div class="text-right text-sm shrink-0"><div class="font-bold">${esc(r.jam)}</div><div>${esc(r.st)}</div></div></li>`).join('')
+    <div class="text-right text-sm shrink-0"><div class="font-bold">${esc(r.jam)}</div><div class="font-semibold ${stCls(r.st)}">${esc(r.st)}</div></div></li>`).join('')
     :'<li class="py-3 text-sm text-emerald-700">Belum ada scan.</li>';
+  renderSync();
   renderSiswa();
   renderRekap();
 }
+function renderSync(){
+  const n=outbox.length, c=$('chipSync');
+  let txt,cls='bg-white/20';
+  if(!navigator.onLine){txt=`🔴 Offline${n?` • ${n} menunggu`:''}`;cls='bg-red-500'}
+  else if(n&&syncing){txt=`⏳ Mengirim ${n}…`;cls='bg-amber-400 text-amber-950'}
+  else if(n&&syncErr){txt=`⚠️ ${n} belum terkirim`;cls='bg-amber-400 text-amber-950'}
+  else if(n){txt=`⏳ ${n} menunggu kirim`;cls='bg-amber-400 text-amber-950'}
+  else txt=`☁️ Tersambung${lastSync?' • '+lastSync:''}`;
+  c.textContent=txt;c.className='rounded-full px-3 py-1 '+cls;
+  $('boxAntre').classList.toggle('hidden',!n);
+  if(!n)return;
+  $('antreJudul').textContent=`⏳ ${n} data belum masuk Spreadsheet`;
+  $('antreInfo').textContent=!navigator.onLine?'HP sedang offline. Data aman di HP ini dan dikirim otomatis begitu ada sinyal.'
+    :syncing?'Sedang mengirim…':(syncErr?`Gagal: ${syncErr}. Mencoba lagi otomatis.`:'Dikirim otomatis di latar belakang.');
+  $('antreList').innerHTML=outbox.slice(0,8).map(o=>`<li class="py-1 flex justify-between gap-2"><span class="font-semibold">${esc(o.nama)} <span class="text-xs font-normal">${esc(o.kelas)} • ${esc(o.jenisSholat)}</span></span><span class="shrink-0 text-xs font-bold">${jam(new Date(o.waktu))}${o.tries?' • coba '+(o.tries+1):''}</span></li>`).join('')
+    +(n>8?`<li class="py-1 text-xs">+${n-8} lainnya</li>`:'');
+}
 function renderSiswa(){
+  if(!$('panelSiswa').open)return;
   const q=($('cari').value||'').toLowerCase();
   const f=siswa.filter(s=>!q||`${s.nis} ${s.nama} ${s.kelas}`.toLowerCase().includes(q));
   $('cacheInfo').textContent=`Menampilkan ${Math.min(f.length,100)} dari ${f.length} siswa`+(ls.get('siswaTime','')?` • ditarik ${ls.get('siswaTime','')}`:'');
   $('listSiswa').innerHTML=f.slice(0,100).map(s=>`<li class="py-1.5"><b>${esc(s.nama)}</b><div class="text-xs text-emerald-700">${esc(s.kelas)} • ${esc(s.nis)}</div></li>`).join('')||'<li class="py-2">Data kosong. Tarik data siswa di Pengaturan.</li>';
 }
-function addRiwayat(s,jenis,st){
-  riwayat.unshift({nama:s.nama,kelas:s.kelas,nis:s.nis,jenis,jam:jam(),st});
+function addRiwayat(o,st){
+  riwayat.unshift({id:o.id,nama:o.nama,kelas:o.kelas,nis:o.nis,jenis:o.jenisSholat,jam:jam(new Date(o.waktu)),st});
   riwayat=riwayat.slice(0,5);ls.set('riwayat',riwayat);
-  render();
+}
+function setRiwayat(id,st){
+  const r=riwayat.find(x=>x.id===id);
+  if(r){r.st=st;ls.set('riwayat',riwayat)}
 }
 
 /* ---------- pengaturan ---------- */
+function fillSettings(){$('url').value=cfg.url||'';$('pengawas').value=cfg.pengawas||''}
 function saveCfg(){
   cfg.url=$('url').value.trim();cfg.pengawas=$('pengawas').value.trim();
   ls.set('cfg',cfg);render();
 }
-$('btnSimpan').onclick=()=>{saveCfg();$('debug').textContent='✔ URL & nama pengawas tersimpan.'};
+$('btnSimpan').onclick=()=>{saveCfg();$('debug').textContent='✔ URL & nama pengawas tersimpan.';kickSync(0);pullAbsen()};
 $('pengawas').onchange=saveCfg;
 document.querySelectorAll('.btnJenis').forEach(b=>b.onclick=()=>{cfg.jenis=b.dataset.j;ls.set('cfg',cfg);render()});
 $('cari').oninput=renderSiswa;
+$('panelSiswa').addEventListener('toggle',renderSiswa);
 
-$('btnTest').onclick=async()=>{
-  saveCfg();
-  if(!cfg.url){$('debug').textContent='❌ Isi URL Web App dulu.';return}
-  $('debug').textContent='⏳ Memuat data siswa...';
+async function tarikSiswa(silent){
+  if(!cfg.url){if(!silent)$('debug').textContent='❌ Isi URL Web App dulu.';return}
+  if(!silent)$('debug').textContent='⏳ Memuat data siswa...';
   try{
     const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=getSiswa');
     const j=await r.json();
-    $('debug').textContent=JSON.stringify(j,null,2).slice(0,3500);
-    if(j.status==='sukses'&&Array.isArray(j.data)){
+    if(!silent)$('debug').textContent=JSON.stringify(j,null,2).slice(0,3500);
+    if(j.status==='sukses'&&Array.isArray(j.data)&&(j.data.length||!silent)){
       siswa=j.data;ls.set('siswa',siswa);
-      ls.set('siswaTime',tgl()+' '+jam());render();
+      ls.set('siswaTime',tgl()+' '+jam());ls.set('siswaTs',Date.now());render();
     }
   }catch(e){
-    $('debug').textContent='❌ Gagal: '+e.message+'\n\nPeriksa: URL berakhiran /exec, Web App di-deploy "Anyone", dan HP online.';
+    if(!silent)$('debug').textContent='❌ Gagal: '+e.message+'\n\nPeriksa: URL berakhiran /exec, Web App di-deploy "Anyone", dan HP online.';
   }
-};
+}
+$('btnTest').onclick=()=>{saveCfg();tarikSiswa(false)};
+function autoSiswa(){ // data siswa dipanggil ulang otomatis tiap 6 jam
+  if(!cfg.url||!navigator.onLine)return;
+  if(Date.now()-ls.get('siswaTs',0)>6*3600*1000)tarikSiswa(true);
+}
 
-/* ---------- kirim ke Sheet ---------- */
-async function post(p){
-  const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(p)});
-  return await r.json();
+/* ---------- kirim ke Spreadsheet (latar belakang, per kelompok) ---------- */
+async function post(p,ms=25000){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  try{
+    const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(p),signal:c.signal});
+    return await r.json();
+  }finally{clearTimeout(t)}
 }
-async function syncQueue(){
-  if(!queue.length||!cfg.url||!navigator.onLine)return;
-  const sisa=[];let ok=0;
-  for(const p of queue){try{await post(p);ok++}catch(e){sisa.push(p)}}
-  queue=sisa;ls.set('queue',queue);render();
-  if(ok)notif('ok',{nama:`${ok} data terkirim`,info:'Antrean offline',status:'✅ TERSIMPAN DI SPREADSHEET'});
+function kickSync(ms=1200){clearTimeout(syncTimer);syncTimer=setTimeout(syncNow,ms)}
+async function syncNow(){
+  if(syncing)return;
+  if(!outbox.length){syncErr='';fails=0;renderSync();return}
+  if(!cfg.url){syncErr='URL Web App belum diisi';renderSync();return}
+  if(!navigator.onLine){renderSync();return}
+  syncing=true;renderSync();
+  const batch=outbox.slice(0,30);
+  let galat='';
+  try{
+    const j=await post({batch:batch.map(o=>({id:o.id,nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu}))});
+    if(j.status!=='sukses'||!Array.isArray(j.hasil))throw new Error(j.pesan||'server menolak');
+    galat=terapkanHasil(batch,j.hasil);
+    lastSync=jam();ls.set('lastSync',lastSync);
+  }catch(e){
+    galat=e.name==='AbortError'?'server lambat (timeout)':(e.message||'sinyal putus');
+    batch.forEach(o=>{o.tries=(o.tries||0)+1});saveOutbox();
+  }
+  syncing=false;syncErr=galat;fails=galat?fails+1:0;
+  render();
+  if(outbox.length)kickSync(galat?Math.min(30000,2000*2**Math.min(fails,4)):300);
+  else pullAbsen(); // semua terkirim: samakan dengan data semua pengawas
 }
-$('btnSync').onclick=syncQueue;
-window.addEventListener('online',()=>{render();syncQueue()});
+// data keluar dari antrean HANYA jika Spreadsheet menjawab sukses/duplikat untuk data itu
+function terapkanHasil(batch,hasil){
+  const peta=new Map(hasil.map(h=>[h.id,h])), selesai=new Set();
+  let galat='';
+  batch.forEach(o=>{
+    const h=peta.get(o.id);
+    if(!h){galat=galat||'jawaban server tidak lengkap';o.tries=(o.tries||0)+1;return}
+    if(h.status==='sukses'||h.status==='duplikat'){
+      sent[`${nk(o.nis)}|${tgl(new Date(o.waktu))}|${o.jenisSholat}`]=h.jam||jam(new Date(o.waktu));
+      selesai.add(o.id);
+      const lain=h.status==='duplikat'&&!o.tries; // duplikat di kiriman pertama = sudah dicatat pengawas lain
+      setRiwayat(o.id,lain?'⚠️ Sudah ada':'✅ Tersimpan');
+      notifUpdate(o.id,lain?'dup':'ok',lain?'⚠️ SUDAH ADA - sudah dicatat pengawas lain':`✅ TERSIMPAN DI SPREADSHEET jam ${jam(new Date(o.waktu))}`);
+    }else{
+      o.tries=(o.tries||0)+1;o.err=h.pesan||'error';galat=galat||o.err;
+    }
+  });
+  outbox=outbox.filter(o=>!selesai.has(o.id));
+  saveOutbox();pruneSent();
+  return galat;
+}
+$('btnSync').onclick=()=>kickSync(0);
+$('chipSync').onclick=()=>{kickSync(0);pullAbsen(true)};
+window.addEventListener('online',()=>{render();kickSync(0);pullAbsen();autoSiswa()});
 window.addEventListener('offline',render);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){kickSync(0);pullAbsen()}});
+setInterval(()=>{if(outbox.length&&!syncing)kickSync(0)},15000); // jaring pengaman
+setInterval(()=>{if(document.visibilityState==='visible')pullAbsen()},60000);
+setInterval(autoSiswa,30*60*1000);
 
-/* ---------- scan ---------- */
-async function onScan(txt){
+/* ---------- scan (instan, tidak menunggu internet) ---------- */
+function onScan(txt){
   if(paused)return;
-  paused=true;setTimeout(()=>paused=false,3000);
-  const nis=String(txt).trim();
-  const s=siswa.find(x=>String(x.nis).trim()===nis);
+  const nis=String(txt).trim(), now=Date.now();
+  if(cool[nis]&&now-cool[nis]<4000)return; // QR yang sama masih di depan kamera: abaikan diam-diam
+  cool[nis]=now;
+  if(Object.keys(cool).length>300)Object.keys(cool).forEach(k=>{if(now-cool[k]>60000)delete cool[k]});
+  paused=true;setTimeout(()=>paused=false,1000);
+
+  const s=cariSiswa(nis);
   if(!s){beep('err');notif('err',{nama:'NIS tidak dikenal',info:nis,status:'Tarik ulang data siswa atau cek kartu'});return}
 
-  const jenis=cfg.jenis, info=`${s.kelas} - ${nis} - ${jenis}`, key=`${nis}|${tgl()}|${jenis}`;
-  if(scanned[key]&&Date.now()-scanned[key]<600000){
-    beep('err');notif('dup',{nama:s.nama,info,status:`⚠️ Sudah absen (${jam()})`});return;
+  const jenis=cfg.jenis, info=`${s.kelas} - ${s.nis} - ${jenis}`;
+  const ada=sudahMap(jenis).get(nk(s.nis));
+  if(ada){
+    beep('err');
+    notif('dup',{nama:s.nama,info,status:`⚠️ SUDAH ABSEN ${jenis} jam ${ada.jam}`+(ada.ok?'':' (masih menunggu kirim)')});
+    return;
   }
-  const payload={nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.pengawas,waktu:new Date().toISOString()};
-  if(pend[key])return;
-  pend[key]=1;
-  scanned[key]=Date.now();ls.set('scanned',scanned);
-  try{
-    const r=await post(payload);
-    Object.keys(scanned).forEach(k=>{if(!k.includes('|'+tgl()+'|'))delete scanned[k]});
-    ls.set('scanned',scanned);
-    if(r.status==='sukses'){
-      beep('ok');notif('ok',{nama:s.nama,info,status:`✅ TERSIMPAN DI SPREADSHEET jam ${jam()}`});
-      addRiwayat(s,jenis,'✅ Tersimpan');
-    }else if(r.status==='duplikat'){
-      beep('err');notif('dup',{nama:s.nama,info,status:`⚠️ SUDAH ADA - Hari ini sudah absen (${jam()})`});
-      addRiwayat(s,jenis,'⚠️ Sudah ada');
-    }else{
-      delete scanned[key];ls.set('scanned',scanned);
-      beep('err');notif('err',{nama:s.nama,info,status:'Server menolak: '+(r.pesan||'error')});
-    }
-  }catch(e){
-    queue.push(payload);ls.set('queue',queue);
-    scanned[key]=Date.now();ls.set('scanned',scanned);
-    beep('ok');notif('q',{nama:s.nama,info,status:`📴 Disimpan di HP jam ${jam()}, dikirim saat online`});
-    addRiwayat(s,jenis,'📴 Menunggu');
-  }finally{delete pend[key]}
+  const o={id:uid(),nis:s.nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.pengawas,waktu:new Date().toISOString(),tries:0};
+  outbox.push(o);saveOutbox();               // aman di HP lebih dulu
+  const online=navigator.onLine&&cfg.url;
+  beep('ok');
+  notif(online?'ok':'q',{id:o.id,nama:s.nama,info,status:online?`✅ TERCATAT jam ${jam()} • ⏳ mengirim ke Spreadsheet…`:`📴 TERCATAT di HP jam ${jam()} • dikirim saat ada sinyal`});
+  addRiwayat(o,'⏳ Mengirim');
+  render();
+  kickSync(1200); // kirim di latar belakang; beberapa scan digabung jadi satu kiriman
 }
 $('btnMulai').onclick=async()=>{
   if(!cfg.url)return alert('Isi dan simpan URL Web App dulu.');
@@ -323,44 +448,30 @@ $('btnStop').onclick=async()=>{
 };
 
 /* ---------- rekap hari ini ---------- */
-const nk=v=>String(v??'').trim().replace(/^0+/,'');
-const kcmp=(a,b)=>String(a).localeCompare(String(b),'id',{numeric:true});
-let rekapJenis=cfg.jenis||'Dhuhur', rekapFilter='semua', rekapWaktu=ls.get('rekapWaktu',''), rekapErr='';
-let absenSrv=ls.get('absenSrv',{tgl:'',data:[]});
-const bukaKelas=new Set();
-
-function sudahMap(jenis){
-  const m=new Map(), t=tgl();
-  if(absenSrv.tgl===t)absenSrv.data.forEach(a=>{if(a.jenis===jenis)m.set(nk(a.nis),a.jam||'')});
-  Object.keys(scanned).forEach(k=>{
-    const [n,d,j]=k.split('|');
-    if(d===t&&j===jenis&&!m.has(nk(n)))m.set(nk(n),jam(new Date(scanned[k])));
-  });
-  return m;
-}
 function renderRekap(){
-  const box=$('rekapList');
+  const sd=sudahMap(rekapJenis), total=siswa.length;
+  let sudahTotal=0,tunggu=0;
+  siswa.forEach(s=>{const x=sd.get(nk(s.nis));if(x){sudahTotal++;if(!x.ok)tunggu++}});
+  $('rekapRingkas').textContent=total?`${rekapJenis} ${sudahTotal}/${total}${tunggu?' • ⏳'+tunggu:''}`:'';
+  if(!$('panelRekap').open)return; // jangan menggambar daftar besar saat panel tertutup (cepat)
   document.querySelectorAll('.btnRJ').forEach(b=>{
     b.className='btnRJ btn !py-2 border-2 '+(b.dataset.j===rekapJenis?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
   });
   document.querySelectorAll('.btnRF').forEach(b=>{
     b.className='btnRF btn !py-2 !px-1 text-sm border-2 '+(b.dataset.f===rekapFilter?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
   });
-  if(!siswa.length){
-    box.innerHTML='<p class="text-sm text-emerald-700">Data siswa kosong. Tarik data di Pengaturan dulu.</p>';
-    $('rekapRingkas').textContent='';return;
+  const box=$('rekapList');
+  if(!total){
+    box.innerHTML='<p class="text-sm text-emerald-700">Data siswa kosong. Tarik data di Pengaturan dulu.</p>';return;
   }
-  const sd=sudahMap(rekapJenis), q=($('rekapCari').value||'').toLowerCase().trim();
-  const grup={};let sudahTotal=0;
-  siswa.forEach(s=>{
-    const k=s.kelas||'(tanpa kelas)';
-    (grup[k]=grup[k]||[]).push(s);
-    if(sd.has(nk(s.nis)))sudahTotal++;
-  });
-  const total=siswa.length, pct=Math.round(sudahTotal/total*100);
+  const q=($('rekapCari').value||'').toLowerCase().trim();
+  const pct=Math.round(sudahTotal/total*100);
   $('rekapSudah').textContent=sudahTotal;$('rekapTotal').textContent=' / '+total;
   $('rekapPersen').textContent=pct+'%';$('rekapBar').style.width=pct+'%';
-  $('rekapRingkas').textContent=`${rekapJenis} ${sudahTotal}/${total}`;
+  $('rekapPending').classList.toggle('hidden',!tunggu);
+  $('rekapPending').textContent=`⏳ ${tunggu} di antaranya belum masuk Spreadsheet (dikirim otomatis)`;
+  const grup={};
+  siswa.forEach(s=>{const k=s.kelas||'(tanpa kelas)';(grup[k]=grup[k]||[]).push(s)});
   let html='';
   Object.keys(grup).sort(kcmp).forEach(k=>{
     const semua=grup[k].slice().sort((a,b)=>kcmp(a.nama,b.nama));
@@ -383,47 +494,56 @@ function renderRekap(){
     if(open){
       html+=`<div class="px-3 pb-2"><div class="h-1.5 bg-emerald-100 rounded-full overflow-hidden mb-1"><div class="h-full bg-emerald-600" style="width:${Math.round(ns/semua.length*100)}%"></div></div><ul class="divide-y divide-emerald-50 text-sm">`+
         tampil.map(s=>{
-          const j=sd.get(nk(s.nis)), ok=sd.has(nk(s.nis));
-          return `<li class="py-1.5 flex justify-between gap-2"><span class="${ok?'':'text-red-700 font-semibold'}">${esc(s.nama)}</span><span class="shrink-0 font-bold ${ok?'text-emerald-700':'text-red-600'}">${ok?'✅ '+esc(j):'Belum'}</span></li>`;
+          const st=sd.get(nk(s.nis)), ok=!!st?.ok, tg=st&&!st.ok;
+          return `<li class="py-1.5 flex justify-between gap-2"><span class="${ok?'':(tg?'text-amber-700 font-semibold':'text-red-700 font-semibold')}">${esc(s.nama)}</span><span class="shrink-0 font-bold ${ok?'text-emerald-700':(tg?'text-amber-600':'text-red-600')}">${ok?'✅ '+esc(st.jam):(tg?'⏳ '+esc(st.jam)+' belum terkirim':'Belum')}</span></li>`;
         }).join('')+'</ul></div>';
     }
     html+='</details>';
   });
   box.innerHTML=html||'<p class="text-sm text-emerald-700">Tidak ada siswa yang cocok.</p>';
   $('rekapInfo').textContent=rekapErr||(absenSrv.tgl===tgl()
-    ?`Data Spreadsheet diperbarui jam ${rekapWaktu}. Scan terbaru dari HP ini langsung ikut tampil.`
+    ?`Data Spreadsheet diperbarui jam ${rekapWaktu} (otomatis tiap 1 menit).`
     :'Belum diperbarui hari ini. Klik Perbarui untuk melihat scan semua pengawas.');
 }
-async function muatRekap(){
-  if(!cfg.url){rekapErr='Isi URL Web App di Pengaturan dulu.';renderRekap();return}
-  if(!navigator.onLine){rekapErr='HP sedang offline. Menampilkan data terakhir.';renderRekap();return}
-  const b=$('btnRekap');b.disabled=true;b.textContent='⏳ Memuat...';
+async function pullAbsen(manual){
+  if(pulling)return;
+  if(!cfg.url){if(manual===true){rekapErr='Isi URL Web App di Pengaturan dulu.';renderRekap()}return}
+  if(!navigator.onLine){if(manual===true){rekapErr='HP sedang offline. Menampilkan data terakhir.';renderRekap()}return}
+  pulling=true;
+  const b=$('btnRekap');
+  if(manual===true){b.disabled=true;b.textContent='⏳ Memuat...'}
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),20000);
   try{
-    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=getAbsen');
+    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=getAbsen',{signal:c.signal});
     const j=await r.json();
     if(j.status!=='sukses')throw new Error(j.pesan||'server menolak');
     absenSrv={tgl:j.tanggal,data:j.data};ls.set('absenSrv',absenSrv);
     rekapWaktu=jam();ls.set('rekapWaktu',rekapWaktu);rekapErr='';
-  }catch(e){rekapErr='Gagal memuat rekap: '+e.message}
+    if(!syncing&&!outbox.length){lastSync=jam();ls.set('lastSync',lastSync)}
+  }catch(e){rekapErr='Gagal memuat rekap: '+(e.name==='AbortError'?'server lambat':e.message)}
+  clearTimeout(t);pulling=false;
   b.disabled=false;b.textContent='🔄 Perbarui dari Spreadsheet';
-  renderRekap();
+  renderRekap();renderSync();
 }
 document.querySelectorAll('.btnRJ').forEach(b=>b.onclick=()=>{rekapJenis=b.dataset.j;renderRekap()});
 document.querySelectorAll('.btnRF').forEach(b=>b.onclick=()=>{rekapFilter=b.dataset.f;renderRekap()});
 $('rekapCari').oninput=renderRekap;
-$('btnRekap').onclick=muatRekap;
-$('panelRekap').addEventListener('toggle',()=>{if($('panelRekap').open)muatRekap()});
+$('btnRekap').onclick=()=>pullAbsen(true);
+$('panelRekap').addEventListener('toggle',()=>{if($('panelRekap').open){renderRekap();pullAbsen(true)}});
 $('rekapList').addEventListener('toggle',e=>{
   const d=e.target;if(!d.dataset||!d.dataset.k||$('rekapCari').value.trim())return;
   const k=d.dataset.k;
   if(d.open&&!bukaKelas.has(k)){bukaKelas.add(k);renderRekap()}
   else if(!d.open&&bukaKelas.has(k))bukaKelas.delete(k);
 },true);
-setInterval(()=>{if($('panelRekap').open&&document.visibilityState==='visible')muatRekap()},60000);
 
+/* ---------- mulai ---------- */
+fillSettings();
 render();
 if(!cfg.url)$('panelSet').open=true;
-syncQueue();
+kickSync(0);     // kirim sisa antrean dari sebelumnya
+pullAbsen();     // ambil data semua pengawas
+autoSiswa();
 </script>
 </body>
 </html>
