@@ -64,8 +64,10 @@
     <summary class="font-bold text-lg cursor-pointer">⚙️ Pengaturan</summary>
     <div class="mt-3 space-y-3">
       <div>
-        <label class="text-sm font-semibold">PIN Pengawas (dari admin)</label>
-        <input id="pin" class="inp mt-1" type="password" inputmode="numeric" autocomplete="off" placeholder="Masukkan PIN">
+        <label class="text-sm font-semibold">Nama Pengawas</label>
+        <input id="nama" class="inp mt-1" type="text" autocomplete="name" maxlength="40" placeholder="Nama Anda (akan tercatat di Spreadsheet)">
+        <label class="text-sm font-semibold mt-2 block">Token Akses (dari admin)</label>
+        <input id="token" class="inp mt-1" type="password" autocomplete="off" autocapitalize="characters" placeholder="Masukkan token">
         <button id="btnMasuk" class="btn bg-emerald-700 text-white w-full mt-2">🔓 Masuk</button>
         <div id="infoMasuk" class="text-sm font-semibold mt-1"></div>
       </div>
@@ -198,7 +200,8 @@ const kcmp=(a,b)=>String(a).localeCompare(String(b),'id',{numeric:true});
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
 /* ---------- data ---------- */
-let cfg=Object.assign({url:URL_DEFAULT,pin:'',nama:'',jenis:'auto'},ls.get('cfg',{}));
+let cfg=Object.assign({url:URL_DEFAULT,token:'',nama:'',jenis:'auto'},ls.get('cfg',{}));
+delete cfg.pin; // sisa versi lama (PIN per pengawas)
 if(!cfg.v2){cfg.jenis='auto';cfg.v2=1;ls.set('cfg',cfg)}
 if(!cfg.url)cfg.url=URL_DEFAULT;
 let siswa=ls.get('siswa',[]), riwayat=ls.get('riwayat',[]);
@@ -214,6 +217,7 @@ let scanner=null, paused=false, running=false, ac=null, nt=null, lastN=null, cek
 const cool={}, bukaKelas=new Set();
 const saveOutbox=()=>ls.set('outbox',outbox);
 const saveCfg=()=>ls.set('cfg',cfg);
+const sudahMasuk=()=>!!(cfg.token&&cfg.nama);
 
 let idxFor=null, idx=null;
 function cariSiswa(n){
@@ -298,7 +302,7 @@ function notifUpdate(id,t,status){
 function renderSesi(){
   const j=jenisNow();
   $('sesiBig').textContent=(j==='Dhuhur'?'☀️ ':'🌤️ ')+'Sesi sekarang: '+j.toUpperCase()+(cfg.jenis==='auto'?' (otomatis)':' (manual)');
-  $('infoScan').textContent=cfg.nama||'';
+  $('infoScan').textContent=sudahMasuk()?cfg.nama:'';
   $('batasJam').textContent=String(BATAS_ASHAR).padStart(2,'0')+':00';
 }
 function render(){
@@ -306,7 +310,7 @@ function render(){
     const on=b.dataset.j===cfg.jenis;
     b.className='btnJenis btn !px-1 text-sm border-2 '+(on?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
   });
-  $('chipNama').textContent=cfg.nama?`👤 ${cfg.nama}`:'👤 Belum masuk';
+  $('chipNama').textContent=sudahMasuk()?`👤 ${cfg.nama}`:'👤 Belum masuk';
   $('chipSiswa').textContent=`👥 ${siswa.length} siswa siap`;
   renderSesi();
   const stCls=st=>st.startsWith('✅')?'text-emerald-700':(st.startsWith('⚠️')?'text-orange-600':'text-amber-600');
@@ -347,7 +351,7 @@ function renderSiswa(){
   const q=($('cari').value||'').toLowerCase();
   const f=siswa.filter(s=>!q||`${s.nis} ${s.nama} ${s.kelas}`.toLowerCase().includes(q));
   $('cacheInfo').textContent=`Menampilkan ${Math.min(f.length,100)} dari ${f.length} siswa`+(ls.get('siswaTime','')?` • ditarik ${ls.get('siswaTime','')}`:'');
-  $('listSiswa').innerHTML=f.slice(0,100).map(s=>`<li class="py-1.5"><b>${esc(s.nama)}</b><div class="text-xs text-emerald-700">${esc(s.kelas)} • ${esc(s.nis)}</div></li>`).join('')||'<li class="py-2">Data kosong. Masuk dengan PIN dulu.</li>';
+  $('listSiswa').innerHTML=f.slice(0,100).map(s=>`<li class="py-1.5"><b>${esc(s.nama)}</b><div class="text-xs text-emerald-700">${esc(s.kelas)} • ${esc(s.nis)}</div></li>`).join('')||'<li class="py-2">Data kosong. Masuk dengan token dulu.</li>';
 }
 function addRiwayat(o,st){
   riwayat.unshift({id:o.id,nama:o.nama,kelas:o.kelas,nis:o.nis,jenis:o.jenisSholat,jam:jam(new Date(o.waktu)),st});
@@ -387,34 +391,35 @@ $('btnCekMode').onclick=()=>{
 };
 
 /* ---------- login & pengaturan ---------- */
-function fillSettings(){$('url').value=cfg.url||''}
+function fillSettings(){$('url').value=cfg.url||'';$('nama').value=cfg.nama||''}
 function apiUrl(action){
-  return cfg.url+(cfg.url.includes('?')?'&':'?')+'action='+action+'&pin='+encodeURIComponent(cfg.pin||'');
+  return cfg.url+(cfg.url.includes('?')?'&':'?')+'action='+action+'&token='+encodeURIComponent(cfg.token||'');
 }
-function pinSalah(){
-  cfg.nama='';saveCfg();render();
+function tokenSalah(){
+  cfg.token='';saveCfg();render();   // nama tetap tersimpan, cukup isi token baru
   $('panelSet').open=true;
-  $('infoMasuk').textContent='❌ PIN salah atau sudah dicabut. Masukkan PIN lagi.';
+  $('infoMasuk').textContent='❌ Token salah atau sudah diganti admin. Masukkan token yang baru.';
 }
 $('btnSimpan').onclick=()=>{
   cfg.url=$('url').value.trim();saveCfg();render();
   $('debug').textContent='✔ Alamat server tersimpan.';
 };
 $('btnMasuk').onclick=async()=>{
-  const pin=$('pin').value.trim(), info=$('infoMasuk');
+  const token=$('token').value.trim(), nama=$('nama').value.replace(/\s+/g,' ').trim(), info=$('infoMasuk');
   cfg.url=$('url').value.trim()||cfg.url;
   if(!cfg.url){info.textContent='❌ Alamat server belum diisi (menu Admin).';return}
-  if(!pin){info.textContent='❌ Isi PIN dulu.';return}
+  if(nama.length<2){info.textContent='❌ Isi nama pengawas dulu.';return}
+  if(!token){info.textContent='❌ Isi token dulu.';return}
   info.textContent='⏳ Memeriksa…';
   try{
-    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=cek&pin='+encodeURIComponent(pin));
+    const r=await fetch(cfg.url+(cfg.url.includes('?')?'&':'?')+'action=cek&token='+encodeURIComponent(token));
     const j=await r.json();
     if(j.status==='sukses'){
-      cfg.pin=pin;cfg.nama=j.nama;saveCfg();
-      $('pin').value='';info.textContent='✅ Masuk sebagai '+j.nama;
+      cfg.token=token;cfg.nama=nama;saveCfg();
+      $('token').value='';info.textContent='✅ Masuk sebagai '+nama;
       render();kickSync(0);tarikSiswa(true);pullAbsen();
       setTimeout(()=>{$('panelSet').open=false},800);
-    }else info.textContent='❌ '+(j.pesan||'PIN salah');
+    }else info.textContent='❌ '+(j.pesan||'Token salah');
   }catch(e){info.textContent='❌ Tidak bisa terhubung: '+e.message}
 };
 document.querySelectorAll('.btnJenis').forEach(b=>b.onclick=()=>{cfg.jenis=b.dataset.j;saveCfg();render()});
@@ -422,13 +427,13 @@ $('cari').oninput=renderSiswa;
 $('panelSiswa').addEventListener('toggle',renderSiswa);
 
 async function tarikSiswa(silent){
-  if(!cfg.url||!cfg.pin){if(!silent)$('debug').textContent='❌ Isi alamat server dan masuk dengan PIN dulu.';return}
+  if(!cfg.url||!cfg.token){if(!silent)$('debug').textContent='❌ Isi alamat server dan masuk dengan token dulu.';return}
   if(!silent)$('debug').textContent='⏳ Memuat data siswa...';
   try{
     const r=await fetch(apiUrl('getSiswa'));
     const j=await r.json();
     if(!silent)$('debug').textContent=JSON.stringify(j,null,2).slice(0,3500);
-    if(j.kode==='PIN'){pinSalah();return}
+    if(j.kode==='TOKEN'){tokenSalah();return}
     if(j.status==='sukses'&&Array.isArray(j.data)&&(j.data.length||!silent)){
       siswa=j.data;ls.set('siswa',siswa);
       ls.set('siswaTime',tgl()+' '+jam());ls.set('siswaTs',Date.now());render();
@@ -439,7 +444,7 @@ async function tarikSiswa(silent){
 }
 $('btnTest').onclick=()=>{cfg.url=$('url').value.trim();saveCfg();tarikSiswa(false)};
 function autoSiswa(){
-  if(!cfg.url||!cfg.pin||!navigator.onLine)return;
+  if(!cfg.url||!cfg.token||!navigator.onLine)return;
   if(Date.now()-ls.get('siswaTs',0)>3*3600*1000)tarikSiswa(true);
 }
 
@@ -456,14 +461,14 @@ async function syncNow(){
   if(syncing)return;
   if(!outbox.length){syncErr='';fails=0;renderSync();return}
   if(!cfg.url){syncErr='alamat server belum diisi';renderSync();return}
-  if(!cfg.pin){syncErr='belum masuk dengan PIN';renderSync();return}
+  if(!cfg.token){syncErr='belum masuk dengan token';renderSync();return}
   if(!navigator.onLine){renderSync();return}
   syncing=true;renderSync();
   const batch=outbox.slice(0,bs);
   let galat='',fatal=false,maju=false;
   try{
-    const j=await post({pin:cfg.pin,batch:batch.map(o=>({id:o.id,nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu}))});
-    if(j.kode==='PIN'){fatal=true;throw new Error(j.pesan||'PIN salah')}
+    const j=await post({token:cfg.token,batch:batch.map(o=>({id:o.id,nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu}))});
+    if(j.kode==='TOKEN'){fatal=true;throw new Error(j.pesan||'Token salah')}
     if(j.status!=='sukses'||!Array.isArray(j.hasil))throw new Error(j.pesan||'server menolak');
     const r=terapkanHasil(batch,j.hasil);
     galat=r.galat;maju=r.maju;
@@ -475,7 +480,7 @@ async function syncNow(){
     bs=Math.max(10,Math.floor(bs/2)); // kiriman lebih kecil bila jaringan buruk
   }
   syncing=false;syncErr=galat;fails=(galat&&!maju)?fails+1:0;
-  if(fatal)pinSalah();
+  if(fatal)tokenSalah();
   render();
   if(outbox.length){
     const d=fatal?60000:(galat&&!maju?Math.min(60000,2000*2**Math.min(fails,5))+Math.random()*1500:200);
@@ -574,8 +579,8 @@ function onScan(txt){
   kickSync(1200);
 }
 $('btnMulai').onclick=async()=>{
-  if(!cfg.url||!cfg.nama)return alert('Masuk dulu dengan PIN di Pengaturan.');
-  if(!siswa.length)return alert('Data siswa kosong. Masuk dengan PIN saat online, atau klik "Tarik Siswa" di menu Admin.');
+  if(!cfg.url||!sudahMasuk())return alert('Masuk dulu dengan nama dan token di Pengaturan.');
+  if(!siswa.length)return alert('Data siswa kosong. Masuk dengan token saat online, atau klik "Tarik Siswa" di menu Admin.');
   try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}
   $('reader').textContent='';
   try{
@@ -608,7 +613,7 @@ function renderRekap(){
   });
   const box=$('rekapList');
   if(!total){
-    box.innerHTML='<p class="text-sm text-emerald-700">Data siswa kosong. Masuk dengan PIN dulu.</p>';return;
+    box.innerHTML='<p class="text-sm text-emerald-700">Data siswa kosong. Masuk dengan token dulu.</p>';return;
   }
   const q=($('rekapCari').value||'').toLowerCase().trim();
   const pct=Math.round(sudahTotal/total*100);
@@ -653,7 +658,7 @@ function renderRekap(){
 }
 async function pullAbsen(manual){
   if(pulling)return;
-  if(!cfg.url||!cfg.pin){if(manual===true){rekapErr='Masuk dengan PIN di Pengaturan dulu.';renderRekap()}return}
+  if(!cfg.url||!cfg.token){if(manual===true){rekapErr='Masuk dengan token di Pengaturan dulu.';renderRekap()}return}
   if(!navigator.onLine){if(manual===true){rekapErr='HP sedang offline. Menampilkan data terakhir.';renderRekap()}return}
   pulling=true;
   const b=$('btnRekap');
@@ -662,7 +667,7 @@ async function pullAbsen(manual){
   try{
     const r=await fetch(apiUrl('getAbsen'),{signal:c.signal});
     const j=await r.json();
-    if(j.kode==='PIN'){pinSalah();throw new Error('PIN salah')}
+    if(j.kode==='TOKEN'){tokenSalah();throw new Error('Token salah')}
     if(j.status!=='sukses')throw new Error(j.pesan||'server menolak');
     absenSrv={tgl:j.tanggal,data:j.data.map(a=>({nis:a[0],jenis:a[1],jam:a[2],pengawas:a[3]})),at:Date.now()};
     ls.set('absenSrv',absenSrv);
@@ -689,7 +694,7 @@ $('rekapList').addEventListener('toggle',e=>{
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){} // minta HP jangan menghapus data
 fillSettings();
 render();
-if(!cfg.nama)$('panelSet').open=true;
+if(!sudahMasuk())$('panelSet').open=true;
 kickSync(0);
 pullAbsen();
 autoSiswa();
