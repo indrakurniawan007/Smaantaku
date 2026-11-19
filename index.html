@@ -89,6 +89,8 @@
             <button id="btnSimpan" class="btn bg-emerald-700 text-white !py-2 text-sm">💾 Simpan</button>
             <button id="btnTest" class="btn bg-emerald-100 text-emerald-900 !py-2 text-sm">📥 Tarik Siswa</button>
           </div>
+          <button id="btnWO" class="btn w-full border-2 !py-2 text-sm"></button>
+          <div class="text-xs text-emerald-700">ON: scan hanya diterima saat ada sinyal dan langsung dikirim ke Spreadsheet. OFF: scan disimpan di HP saat offline lalu dikirim belakangan.</div>
           <pre id="debug" class="bg-emerald-950 text-emerald-200 text-xs rounded-xl p-3 max-h-48 overflow-auto whitespace-pre-wrap">Belum ada data.</pre>
         </div>
       </details>
@@ -200,7 +202,7 @@ const kcmp=(a,b)=>String(a).localeCompare(String(b),'id',{numeric:true});
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
 /* ---------- data ---------- */
-let cfg=Object.assign({url:URL_DEFAULT,token:'',nama:'',jenis:'auto'},ls.get('cfg',{}));
+let cfg=Object.assign({url:URL_DEFAULT,token:'',nama:'',jenis:'auto',wajibOnline:true},ls.get('cfg',{}));
 delete cfg.pin; // sisa versi lama (PIN per pengawas)
 if(!cfg.v2){cfg.jenis='auto';cfg.v2=1;ls.set('cfg',cfg)}
 if(!cfg.url)cfg.url=URL_DEFAULT;
@@ -284,7 +286,7 @@ function hideNotif(){$('notif').classList.add('hidden');$('notif').classList.rem
 function notif(t,o,ms=3000){
   const {nama='',info='',status=''}=o;
   lastN={t,...o};
-  const c={ok:['bg-emerald-600','✅'],dup:['bg-amber-500','⚠️'],err:['bg-red-600','❌'],q:['bg-sky-600','📴']}[t];
+  const c={ok:['bg-emerald-600','✅'],dup:['bg-amber-500','⚠️'],err:['bg-red-600','❌'],q:['bg-sky-600','📴'],w:['bg-amber-500','⏳']}[t];
   $('notif').innerHTML=`<div class="${c[0]} text-white rounded-3xl p-6 text-center shadow-2xl w-full max-w-sm">
     <div class="text-8xl">${c[1]}</div>
     <div class="text-3xl font-extrabold mt-3 leading-tight">${esc(nama)}</div>
@@ -295,7 +297,8 @@ function notif(t,o,ms=3000){
 }
 function notifUpdate(id,t,status){
   if(!id||!lastN||lastN.id!==id||$('notif').classList.contains('hidden'))return;
-  notif(t,{...lastN,status},1800);
+  if(t==='ok')beep('ok');   // bunyi sukses hanya setelah Spreadsheet benar-benar mengonfirmasi
+  notif(t,{...lastN,status},t==='err'?6000:1800);
 }
 
 /* ---------- tampilan ---------- */
@@ -305,7 +308,14 @@ function renderSesi(){
   $('infoScan').textContent=sudahMasuk()?cfg.nama:'';
   $('batasJam').textContent=String(BATAS_ASHAR).padStart(2,'0')+':00';
 }
+const wajibOnline=()=>cfg.wajibOnline!==false;
+function renderWO(){
+  const on=wajibOnline();
+  $('btnWO').textContent=on?'📡 Wajib Online: ON (tanpa sinyal tidak bisa scan)':'📴 Wajib Online: OFF (boleh scan offline)';
+  $('btnWO').className='btn w-full border-2 !py-2 text-sm '+(on?'bg-emerald-700 text-white border-emerald-700':'border-amber-400 text-amber-800');
+}
 function render(){
+  renderWO();
   document.querySelectorAll('.btnJenis').forEach(b=>{
     const on=b.dataset.j===cfg.jenis;
     b.className='btnJenis btn !px-1 text-sm border-2 '+(on?'bg-emerald-700 text-white border-emerald-700':'border-emerald-300');
@@ -384,6 +394,7 @@ function renderCek(){
   box.innerHTML=html;
 }
 $('cekCari').oninput=renderCek;
+$('btnWO').onclick=()=>{cfg.wajibOnline=!wajibOnline();saveCfg();renderWO()};
 $('btnCekMode').onclick=()=>{
   cekMode=!cekMode;
   $('btnCekMode').textContent=cekMode?'🔎 Mode Cek: ON (scan TIDAK mencatat)':'🔎 Mode Cek: OFF (scan akan mencatat)';
@@ -467,7 +478,7 @@ async function syncNow(){
   const batch=outbox.slice(0,bs);
   let galat='',fatal=false,maju=false;
   try{
-    const j=await post({token:cfg.token,batch:batch.map(o=>({id:o.id,nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu}))});
+    const j=await post({token:cfg.token,kirimMs:Date.now(),batch:batch.map(o=>({id:o.id,nis:o.nis,nama:o.nama,kelas:o.kelas,jenisSholat:o.jenisSholat,pengawas:o.pengawas,waktu:o.waktu,auto:o.auto}))});
     if(j.kode==='TOKEN'){fatal=true;throw new Error(j.pesan||'Token salah')}
     if(j.status!=='sukses'||!Array.isArray(j.hasil))throw new Error(j.pesan||'server menolak');
     const r=terapkanHasil(batch,j.hasil);
@@ -480,6 +491,7 @@ async function syncNow(){
     bs=Math.max(10,Math.floor(bs/2)); // kiriman lebih kecil bila jaringan buruk
   }
   syncing=false;syncErr=galat;fails=(galat&&!maju)?fails+1:0;
+  if(galat&&!maju)batch.forEach(o=>notifUpdate(o.id,'err','❌ BELUM MASUK SPREADSHEET\nTersimpan di HP, dicoba kirim lagi. Jangan tutup aplikasi.'));
   if(fatal)tokenSalah();
   render();
   if(outbox.length){
@@ -502,7 +514,7 @@ function terapkanHasil(batch,hasil){
       selesai.add(o.id);
       const lain=h.status==='duplikat'&&!o.tries;
       setRiwayat(o.id,lain?'⚠️ Sudah ada':'✅ Tersimpan');
-      notifUpdate(o.id,lain?'dup':'ok',lain?'⚠️ SUDAH ADA - sudah dicatat pengawas lain':`✅ MASUK SPREADSHEET jam ${jam(new Date(o.waktu))}`);
+      notifUpdate(o.id,lain?'dup':'ok',lain?'⚠️ SUDAH ADA - sudah dicatat pengawas lain':`✅ MASUK SPREADSHEET jam ${h.jam||jam(new Date(o.waktu))}`);
     }else{
       o.tries=(o.tries||0)+1;o.err=h.pesan||'error';galat=galat||o.err;gagal.push(o);
     }
@@ -563,7 +575,14 @@ function onScan(txt){
     notif('dup',{nama:s.nama,info,status:`⚠️ SUDAH ABSEN ${jenis} jam ${ada.jam}`+(ada.ok?'':' (masih menunggu kirim)')});
     return;
   }
-  const o={id:uid(),nis:s.nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.nama,waktu:new Date().toISOString(),tries:0};
+  // MODE WAJIB ONLINE: tanpa sinyal / server belum bisa dihubungi, scan DITOLAK (tidak masuk antrean)
+  if(wajibOnline()&&(!navigator.onLine||!cfg.url||!cfg.token||fails>0||syncErr)){
+    delete cool[nis];
+    beep('err');
+    notif('err',{nama:s.nama,info,status:'📵 SINYAL BURUK / OFFLINE\nScan TIDAK dicatat. Coba scan lagi saat sinyal pulih.'},5000);
+    return;
+  }
+  const o={id:uid(),nis:s.nis,nama:s.nama,kelas:s.kelas,jenisSholat:jenis,pengawas:cfg.nama,waktu:new Date().toISOString(),auto:cfg.jenis==='auto',tries:0};
   outbox.push(o);
   if(!saveOutbox()){ // HP gagal menyimpan: JANGAN pura-pura tercatat
     outbox.pop();delete cool[nis];
@@ -572,11 +591,16 @@ function onScan(txt){
     return;
   }
   const online=navigator.onLine&&cfg.url;
-  beep('ok');
-  notif(online?'ok':'q',{id:o.id,nama:s.nama,info,status:online?`✅ DITERIMA jam ${jam()}\n⏳ mengirim ke Spreadsheet…`:`📴 TERSIMPAN di HP jam ${jam()}\ndikirim saat ada sinyal`});
+  if(online){ // belum hijau/bunyi sukses: tunggu konfirmasi Spreadsheet
+    if(navigator.vibrate)navigator.vibrate(40);
+    notif('w',{id:o.id,nama:s.nama,info,status:`⏳ MENGIRIM ke Spreadsheet…\nTunggu tanda ✅ hijau`},8000);
+  }else{
+    beep('ok');
+    notif('q',{id:o.id,nama:s.nama,info,status:`📴 TERSIMPAN di HP jam ${jam()}\ndikirim saat ada sinyal`});
+  }
   addRiwayat(o,'⏳ Mengirim');
   render();
-  kickSync(1200);
+  kickSync(wajibOnline()?150:1200);
 }
 $('btnMulai').onclick=async()=>{
   if(!cfg.url||!sudahMasuk())return alert('Masuk dulu dengan nama dan token di Pengaturan.');
@@ -692,6 +716,8 @@ $('rekapList').addEventListener('toggle',e=>{
 
 /* ---------- mulai ---------- */
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){} // minta HP jangan menghapus data
+// service worker: halaman & pustaka scanner tersimpan di HP agar bisa dibuka saat sinyal hilang (butuh HTTPS + file sw.js sefolder)
+try{if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{})}catch(e){}
 fillSettings();
 render();
 if(!sudahMasuk())$('panelSet').open=true;
